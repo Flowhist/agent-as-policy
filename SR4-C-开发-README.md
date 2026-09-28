@@ -51,9 +51,13 @@
 
 ```powershell
 ssh embotic@192.168.0.10
+# 等价别名，自动建立代理反向转发
+ssh gpt-for-policy
 ```
 
 登录后进入 `/home/embotic/gpt-for-policy`。该目录是后续开发工作副本；仓库为私有仓库 `Flowhist/gpt-for-policy`，SDK 子模块版本已固定。重新克隆时使用 `git clone --recurse-submodules`；二进制依赖需单独准备。SSH 使用公钥登录，密码和私钥不写入项目。
+
+Windows SSH 为上述别名和 IP 配置 `RemoteForward 127.0.0.1:17890 127.0.0.1:1111`。保持 Windows 本地代理和 SSH 连接运行；Ubuntu 的 SSH shell 检测到转发监听后，自动设置 HTTP/HTTPS 代理为 `http://127.0.0.1:17890`，机械臂及同网段地址通过 `no_proxy` 直连。配置位于 Ubuntu `~/.config/gpt-for-policy/proxy.sh`，由 `.bashrc` / `.profile` 加载。独立服务需另行配置环境；关闭承载转发的 SSH 连接后，代理不可用。并行 SSH 登录允许继续连接，但转发失败警告需核对，不能据此认定代理已恢复。Ubuntu 使用仅限本仓库的 GitHub 部署密钥，可直接拉取和推送。
 
 **下面仅保留历史 Windows 操作命令，不能直接在 Ubuntu 执行。** 下一步先准备匹配的 Linux SDK、创建 Ubuntu 虚拟环境并适配加载逻辑，再在现场确认机器人空闲后复验连接和运动。
 

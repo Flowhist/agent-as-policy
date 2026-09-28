@@ -34,7 +34,7 @@
 - 指令被接收不代表到达，夹爪关闭不代表抓取成功，GPT 自报完成不代表任务验收通过。
 - GPT 不承担高频电机伺服。首版使用 SR4-C 非实时 SDK，不照搬上游仿真的 25 Hz 控制周期。
 
-部署：Windows 仅通过 SSH 访问 `embotic@192.168.0.10`；开发和闭环运行位于 Ubuntu 的 `/home/embotic/gpt-for-policy`。USB 相机和 USB 夹爪直接连接 Ubuntu。Ubuntu 与机械臂控制器 `192.168.0.160` 连接同一台路由器、处于同一网段，Ubuntu 当前经有线网卡 `enp2s0` 访问控制器。模型调用由 Ubuntu 发起，模型服务网络可用性需另行验证。
+部署：Windows 仅通过 SSH 访问 `embotic@192.168.0.10`（别名 `gpt-for-policy`）；开发和闭环运行位于 Ubuntu 的 `/home/embotic/gpt-for-policy`。USB 相机和 USB 夹爪直接连接 Ubuntu。Ubuntu 与机械臂控制器 `192.168.0.160` 连接同一台路由器、处于同一网段，Ubuntu 当前经有线网卡 `enp2s0` 访问控制器。SSH 将 Ubuntu `127.0.0.1:17890` 反向转发至 Windows 代理 `127.0.0.1:1111`，远端 SSH shell 自动配置代理环境；机械臂通信直连。模型调用由 Ubuntu 发起，依赖 Windows 代理与承载转发的 SSH 连接持续可用；具体模型入口、权限和调用仍待验证。
 
 ## 3. 本机基础与待补条件
 
