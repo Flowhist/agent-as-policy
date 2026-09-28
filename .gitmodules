@@ -1,0 +1,3 @@
+[submodule "vendor/xCoreSDK-Python"]
+	path = vendor/xCoreSDK-Python
+	url = https://github.com/RokaeRobot/xCoreSDK-Python.git

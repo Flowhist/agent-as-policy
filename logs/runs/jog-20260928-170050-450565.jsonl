@@ -1,0 +1,9 @@
+{"time": "2026-09-28T17:00:50.618192+08:00", "step": "info", "value": "<xCoreSDK_python.Info object at 0x000001E510BF16B0>", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T17:00:50.621186+08:00", "step": "mode", "value": "OperateMode.manual", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T17:00:50.623187+08:00", "step": "state", "value": "OperationState.idle", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T17:00:50.624186+08:00", "step": "power", "value": "PowerState.off", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T17:00:50.626185+08:00", "step": "joints", "value": [-0.4622465348807347, -0.04778749628427284, -1.906816016803737, 0.013181209288903586, -1.2354904172214194, -0.43092971788480405, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T17:00:50.628186+08:00", "step": "soft_limits_enabled", "value": false, "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T17:00:50.629185+08:00", "step": "plan", "joint": 6, "delta_deg": 0.1, "sdk_rate": 0.01, "start_deg": [-26.48477554321289, -2.7380218505859375, -109.25251007080078, 0.7552276611328125, -70.78838653564453, -24.6904541015625], "target_deg": [-26.48477554321289, -2.7380218505859375, -109.25251007080078, 0.7552276611328125, -70.78838653564453, -24.5904541015625], "soft_limits_enabled": false, "note": "Joint bounds do not check obstacles, fingers or cables"}
+{"time": "2026-09-28T17:00:57.345901+08:00", "step": "cancelled"}
+{"time": "2026-09-28T17:00:57.377903+08:00", "step": "disconnect", "value": null, "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}

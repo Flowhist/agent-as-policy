@@ -1,0 +1,10 @@
+{"time": "2026-09-28T16:02:29.179642+08:00", "step": "import", "python": "3.12.12 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 20:05:38) [MSC v.1929 64 bit (AMD64)]", "sdk": "0.7.1"}
+{"time": "2026-09-28T16:02:29.186404+08:00", "step": "connect_start", "ip": "192.168.0.160"}
+{"time": "2026-09-28T16:02:29.383834+08:00", "step": "connected"}
+{"time": "2026-09-28T16:02:29.443108+08:00", "step": "robotInfo", "value": {"id": "a229b7c6-57fd-41a4-a938-0980a1c45c42", "version": "3.2.1.C234.20260506", "type": "XMS4-R800-B4S1A2C", "joint_num": 6, "mac": "34:df:20:01:f8:25"}, "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T16:02:29.445113+08:00", "step": "powerState", "value": "PowerState.off", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T16:02:29.447111+08:00", "step": "operateMode", "value": "OperateMode.manual", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T16:02:29.448112+08:00", "step": "operationState", "value": "OperationState.idle", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T16:02:29.450111+08:00", "step": "jointPos_rad", "value": [-0.4622465348807347, -0.04778749628427284, -1.9068162165408185, 0.013180729919907373, -1.2354901775369214, -0.43092971788480405, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T16:02:29.452111+08:00", "step": "posture_endInRef_m_rad", "value": [0.46143660739120845, -0.07308975579994063, 0.3148016265669339, -3.133419762088185, 0.04802645477335951, 3.106427861829844], "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}
+{"time": "2026-09-28T16:02:29.489901+08:00", "step": "disconnect", "error": {"ec": 0, "message": "\u64cd\u4f5c\u6210\u529f\u5b8c\u6210"}}

@@ -1,0 +1,14 @@
+{
+  "robot_type": "XMS4-R800-B4S1A2C",
+  "captured_at": "2026-09-28T17:02:25.014830+08:00",
+  "source_log": "logs/runs/jog-20260928-170224-802659.jsonl",
+  "description": "Joint angles before the first per-joint motion test; not factory home or encoder calibration.",
+  "joint_deg": [
+    -26.48476409912109,
+    -2.7380218505859375,
+    -109.25252151489258,
+    0.7552413940429688,
+    -70.78838653564453,
+    -24.6904541015625
+  ]
+}
