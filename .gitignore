@@ -1,13 +1,8 @@
 .venv/
 captures/
-logs/*.lock
-logs/web/
-logs/web-simulation/
-logs/web-server.log
+logs/
 __pycache__/
 *.py[cod]
-logs/sdk/
-logs/runs/
 .pytest_cache/
 vendor/*.zip
 .env

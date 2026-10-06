@@ -14,7 +14,7 @@
 | [placed.jpg](placed.jpg) | 退出末端 RGB，目视确认红色三联积木在盒内前侧、夹爪为空 |
 | [calibration/](calibration/) | 同一安装的标定快照，非自动启用配置 |
 
-原始 `captures/` 与 `logs/runs/` 仍保存在实验主机。版本化证据保留原始时区和字段，不因整理而重写运行记录。更多过程可从 Git 提交 `87a3349` 查阅。
+原始标定资料仍在实验主机；`captures/` 内非标定照片/计划及 `logs/` 历史内容已按用户要求清理。此目录中的版本化证据保留，不改写运行记录。更多过程可从 Git 提交 `87a3349` 查阅。桌面参考原图现位于 `captures/calibration/table-reference/`；此处标定快照中的原路径仍按采集时记录保留。
 
 标定快照包含 `samples.yaml`（内参与 20 组配对数据）、`solve-15-validate-5/result.yaml`（15 组拟合、5 组验证）和 `table-plane.yaml`（暂定桌面，标定板图案面离桌 503.25 mm）。快照不含原始标定照片，仅在安装/成像配置未变且复核通过时，按相对路径恢复到本机 `captures/calibration/session-01/`；否则重新标定。
 
