@@ -1,4 +1,4 @@
-"""Supervised single translation jog, at 1%, with pose and joint monitoring."""
+"""Supervised single translation jog, at 1-10%, with pose and joint monitoring."""
 
 import argparse
 from datetime import datetime, timezone
@@ -11,6 +11,20 @@ import time
 from sdk_runtime import sdk_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_expected_start(actual, joints, expected):
+    pose = expected['start_tcp_m_rad']
+    angles = expected['start_joints_deg']
+    if (len(pose) != 6 or len(angles) != 6
+            or not all(math.isfinite(v) for v in pose+angles)):
+        raise ValueError('Invalid expected starting state')
+    if max(abs(a-b) for a,b in zip(actual[:3],pose[:3])) > .0001:
+        raise RuntimeError('TCP moved since IK planning')
+    if max(abs(math.atan2(math.sin(a-b),math.cos(a-b))) for a,b in zip(actual[3:],pose[3:])) > math.radians(.01):
+        raise RuntimeError('Orientation changed since IK planning')
+    if max(abs(math.degrees(a)-b) for a,b in zip(joints,angles)) > .03:
+        raise RuntimeError('Joints changed since IK planning')
 
 
 def check_pose(start, actual, axis, delta):
@@ -31,7 +45,12 @@ def main():
     p.add_argument('--axis',type=int,choices=(0,1,2),required=True)
     p.add_argument('--delta-mm',type=float,required=True)
     p.add_argument('--execute',action='store_true')
+    p.add_argument('--rate',type=float,default=.01)
+    p.add_argument('--expected-state',type=Path,help='Starting TCP and joints used for offline IK checks')
     args=p.parse_args()
+    if not math.isfinite(args.rate) or not .01 <= args.rate <= .10:
+        p.error('Rate must be between 0.01 and 0.10')
+    expected=json.loads(args.expected_state.read_text()) if args.expected_state else None
     if not math.isfinite(args.delta_mm) or not .1 <= abs(args.delta_mm) <= 10:
         p.error('Translation must be 0.1 to 10 mm')
     folder=ROOT/'logs/runs';folder.mkdir(exist_ok=True,parents=True)
@@ -62,6 +81,8 @@ def main():
                 raise RuntimeError('Nonidentity reference/base frame')
             start=list(call(r.posture,sdk.CoordinateType.endInRef))
             joints=list(call(r.jointPos))[:6]
+            if expected is not None:
+                check_expected_start(start,joints,expected)
             limits=sdk.PyTypeVectorArrayDouble2();call(r.getSoftLimit,limits);bounds=limits.content()
             if len(bounds)<6:raise RuntimeError('Joint bounds missing')
             # Keep this commissioning tool in the inspected elevated task region.
@@ -70,14 +91,14 @@ def main():
                 return .23<=x<=.30 and -.60<=y<=-.40 and .125<=z<=.15
             target=start.copy();target[args.axis]+=args.delta_mm/1000
             if not workspace(start) or not workspace(target):raise RuntimeError('Outside elevated alignment workspace')
-            emit('plan',start=start,target=target,start_joints_rad=joints,tool_mass=tool.load.mass,tool_cog=tool.load.cog,rate=.01)
+            emit('plan',start=start,target=target,start_joints_rad=joints,tool_mass=tool.load.mass,tool_cog=tool.load.cog,rate=args.rate)
             if args.execute:
                 time.sleep(.3)
                 before=list(call(r.posture,sdk.CoordinateType.endInRef))
                 if max(abs(a-b) for a,b in zip(start,before))>.0001:raise RuntimeError('Pose not stationary')
                 armed=True;call(r.setPowerState,True)
                 if call(r.powerState)!=sdk.PowerState.on:raise RuntimeError('Power not confirmed')
-                call(r.startJog,sdk.JogOptSpace.baseFrame,.01,abs(args.delta_mm),args.axis,args.delta_mm>0)
+                call(r.startJog,sdk.JogOptSpace.baseFrame,args.rate,abs(args.delta_mm),args.axis,args.delta_mm>0)
                 deadline=time.monotonic()+20;reached=False
                 while time.monotonic()<deadline:
                     actual=list(call(r.posture,sdk.CoordinateType.endInRef))

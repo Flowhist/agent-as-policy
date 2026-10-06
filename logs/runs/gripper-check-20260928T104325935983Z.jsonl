@@ -1,3 +1,0 @@
-{"time": "2026-09-28T10:43:25.936255+00:00", "step": "configuration", "port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ0296VS-if00-port0", "baudrate": 9600, "device_id": 2, "read_only": true}
-{"time": "2026-09-28T10:43:27.439882+00:00", "step": "error", "type": "ModbusIOException", "message": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"}
-{"time": "2026-09-28T10:43:27.440765+00:00", "step": "serial_closed"}

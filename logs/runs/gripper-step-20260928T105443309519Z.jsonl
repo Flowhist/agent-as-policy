@@ -1,3 +1,0 @@
-{"time": "2026-09-28T10:54:43.910186+00:00", "step": "feedback", "initialized": 1, "status": 1, "position_permille": 1000}
-{"time": "2026-09-28T10:54:43.910450+00:00", "step": "plan", "start": 1000, "target": 990, "force_percent": 20, "execute": false}
-{"time": "2026-09-28T10:54:43.911171+00:00", "step": "serial_closed"}

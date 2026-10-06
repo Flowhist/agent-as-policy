@@ -1,0 +1,59 @@
+status: provisional_geometry_not_motion_validated
+image: /home/embotic/agent-as-policy/captures/raised-board-20261004T030807Z.jpg
+image_sha256: 3cb0a01a8369a727d74b0dd3e8f0047f28d0a41cf682562581d6cc69258d3df1
+extrinsics: /home/embotic/agent-as-policy/captures/calibration/session-01/solve-15-validate-5/result.yaml
+height_pattern_above_table_mm: 503.25
+assumptions:
+- Board parallel to table
+- Camera and base unchanged since calibration
+- Camera is on the above-table side
+- Raised board supported rigidly
+corners: 88
+pnp_rms_ideal_px: 0.14434481234249377
+T_base_board:
+- - 0.004893854487393869
+  - 0.9999879389310243
+  - 0.00041494666976135496
+  - 0.284275858540284
+- - 0.999663348750581
+  - -0.004881691961477867
+  - -0.025482508674934134
+  - -0.6937641920201127
+- - -0.025480175686817104
+  - 0.0005395146668756296
+  - -0.9996751820320907
+  - 0.46675466255225406
+- - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+T_camera_board:
+- - 0.9992822965666417
+  - 0.036064287363974885
+  - -0.011587016243497136
+  - -0.08293157407391907
+- - -0.023299354673959577
+  - 0.8263618622897734
+  - 0.5626572781229748
+  - -0.000295713684309435
+- - 0.029866902087017047
+  - -0.5619834870615918
+  - 0.8266090541663685
+  - 0.3497573300199888
+- - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+table_point_base_m:
+- 0.2844846804518414
+- -0.7065882645107734
+- -0.036331872805395515
+table_up_normal_base:
+- -0.00041494666976135496
+- 0.025482508674934134
+- 0.9996751820320907
+plane_equation: n_x*x + n_y*y + n_z*z + d = 0; x,y,z,d in meters
+plane_d_m: 0.054443759111054583
+normal_angle_to_base_positive_z_deg: 1.4603918782313343
+limitations: Single JPEG preview frame; assumes stated height and parallelism. Not
+  independently checked.

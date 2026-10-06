@@ -1,5 +1,0 @@
-{"time": "2026-09-28T10:53:38.233027+00:00", "step": "configuration", "port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ0296VS-if00-port0", "baudrate": 9600, "device_id": 2, "read_only": true}
-{"time": "2026-09-28T10:53:38.765941+00:00", "step": "initialization", "address": "0x200", "value": 1}
-{"time": "2026-09-28T10:53:38.801931+00:00", "step": "grip_status", "address": "0x201", "value": 1}
-{"time": "2026-09-28T10:53:38.833689+00:00", "step": "position_permille", "address": "0x202", "value": 1000}
-{"time": "2026-09-28T10:53:38.834520+00:00", "step": "serial_closed"}

@@ -10,7 +10,8 @@ from sdk_runtime import sdk_runtime
 
 
 def main(source, destination):
-    data = json.loads(Path(source).read_text())
+    source, destination = Path(source).resolve(), Path(destination).resolve()
+    data = json.loads(source.read_text())
     result = {'motion_sent': False, 'paths': []}
     with sdk_runtime():
         import xCoreSDK_python as sdk
