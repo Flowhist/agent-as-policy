@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SR4-C 控制台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/lucide.min.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand"><i data-lucide="bot"></i><div><h1>SR4-C 控制台</h1><span>标定与示教</span></div></div>
+    <div class="session"><span id="network" class="badge">连接中</span><span id="environment" class="badge">实机</span></div>
+    <button id="stop" class="danger" disabled><i data-lucide="square"></i>停止机械臂</button>
+  </header>
+  <div class="controlbar">
+    <div><span id="ownership">未取得控制权</span><span class="muted" id="activity">设备未连接</span></div>
+    <button id="claim" disabled><i data-lucide="key-round"></i><span>取得控制权</span></button>
+  </div>
+  <div id="alert" role="alert" hidden></div>
+  <main>
+    <section class="observation">
+      <div class="section-head"><h2>工作区</h2><label class="switch-label"><span>相机</span><input id="camera-toggle" type="checkbox" role="switch" disabled></label></div>
+      <div class="camera-frame"><img id="camera" alt="D455 实时工作区画面" hidden><div id="camera-empty"><i data-lucide="camera-off"></i><span>相机未开启</span></div><span class="camera-meta">D455 · RGB · 1280 × 720 · 10 Hz</span></div>
+      <div class="calibration-bar">
+        <button id="capture-calibration" disabled><i data-lucide="camera"></i><span>采集标定样本</span></button>
+        <span id="calibration-count" class="muted">求解 0 / 20 · 验证 0 / 5</span>
+      </div>
+      <div id="calibration-status" class="calibration-status" role="status" aria-live="polite">session-01</div>
+      <div class="section-head pose-heading"><h2>实际位姿</h2><span class="muted">SDK endInRef · m / rad</span></div>
+      <dl class="pose" id="tcp"></dl>
+      <div class="section-head points-heading"><h2>示教点 <span id="point-count">0</span></h2><button id="download" class="icon" title="导出示教点 JSON" aria-label="导出示教点 JSON" disabled><i data-lucide="download"></i></button></div>
+      <form id="point-form"><input id="point-name" maxlength="80" placeholder="点位名称" aria-label="点位名称"><button id="save-point" disabled><i data-lucide="map-pin-plus"></i>记录当前点</button></form>
+      <div id="points" class="points-list"><p class="empty">暂无示教点</p></div>
+    </section>
+    <section class="controls">
+      <div class="section-head"><h2>机械臂</h2><button id="robot-connect" disabled><i data-lucide="plug"></i><span>连接</span></button></div>
+      <div class="device-status"><span id="robot-mode">模式 —</span><span id="robot-power">电源 —</span><span id="robot-operation">状态 —</span></div>
+      <div class="settings"><label>SDK 速率<select id="rate"><option value="0.01">1%</option><option value="0.02">2%</option><option value="0.05">5%</option><option value="0.10">10%</option></select></label><span class="muted">目标角度 °</span></div>
+      <div id="joints"></div>
+      <div class="drag-row"><h2>拖动示教</h2><input id="drag-toggle" type="checkbox" role="switch" aria-label="拖动示教" disabled></div>
+      <div class="section-head gripper-heading"><h2>夹爪</h2><button id="gripper-connect" disabled><i data-lucide="plug"></i><span>连接</span></button></div>
+      <div class="grip-readout"><strong id="gripper-position">—<small>%</small></strong><span id="gripper-status" class="muted">未连接</span></div>
+      <meter id="gripper-meter" min="0" max="1000" value="0" aria-label="夹爪开度"></meter>
+      <div class="target-caption">目标开度 %</div>
+      <div class="target-controls"><input id="grip-slider" type="range" min="0" max="100" step="0.1" value="0" aria-label="夹爪目标开度滑条" disabled><input id="grip-target" type="number" min="0" max="100" step="0.1" value="0" aria-label="夹爪目标开度" disabled><button id="grip-apply" disabled>应用</button></div>
+      <div class="range-label"><span id="grip-min">0%</span><span id="grip-max">100%</span></div>
+      <div class="grip-footer"><span>力设置 20%</span></div>
+    </section>
+  </main>
+  <section class="event-section"><div class="section-head"><h2>操作记录</h2><span class="muted" id="last-update">—</span></div><ol id="events"></ol></section>
+</body>
+</html>

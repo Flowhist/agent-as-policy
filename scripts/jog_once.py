@@ -10,8 +10,8 @@ import json
 import math
 import os
 from pathlib import Path
-import sys
 import time
+from sdk_runtime import sdk_runtime
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_JOG_RATE = 0.10
@@ -25,7 +25,11 @@ def main():
     destination.add_argument("--target-deg", type=float)
     destination.add_argument("--restore-initial", action="store_true")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--rate", type=float, default=DEFAULT_JOG_RATE,
+                        help="SDK jog rate, 0.01 to 0.10 (default: %(default)s)")
     args = parser.parse_args()
+    if not math.isfinite(args.rate) or not 0.01 <= args.rate <= 0.10:
+        parser.error("rate must be finite and between 0.01 and 0.10")
     max_delta = 5.0 if args.joint == 6 else 0.1
     if args.target_deg is not None and (args.joint != 6 or not math.isfinite(args.target_deg)):
         parser.error("absolute targets are supported only for J6 and must be finite")
@@ -38,7 +42,6 @@ def main():
             parser.error("Invalid initial position log")
         args.target_deg = initial[args.joint - 1]
 
-    lib = ROOT / "vendor/xCoreSDK-Python/Release/windows"
     log_dir = ROOT / "logs" / "runs"
     sdk_dir = ROOT / "logs" / "sdk"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -46,8 +49,7 @@ def main():
     # Native SDK logs are relative to the process working directory.
     os.chdir(sdk_dir)
     log_path = log_dir / ("jog-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".jsonl")
-    with os.add_dll_directory(str(lib)), log_path.open("w", encoding="utf-8") as log:
-        sys.path.insert(0, str(lib))
+    with sdk_runtime(), log_path.open("w", encoding="utf-8") as log:
         import xCoreSDK_python as sdk
 
         def emit(name, **fields):
@@ -106,7 +108,7 @@ def main():
             if len(bounds) < 6 or any(not (lo <= v <= hi)
                                       for v, (lo, hi) in zip(target, bounds)):
                 raise RuntimeError("Target outside reported joint bounds")
-            emit("plan", joint=args.joint, delta_deg=args.delta_deg, sdk_rate=DEFAULT_JOG_RATE,
+            emit("plan", joint=args.joint, delta_deg=args.delta_deg, sdk_rate=args.rate,
                  start_deg=list(map(math.degrees, start)),
                  target_deg=list(map(math.degrees, target)), soft_limits_enabled=enabled,
                  note="Joint bounds do not check obstacles, fingers or cables")
@@ -127,7 +129,7 @@ def main():
             if call("power_ready", robot.powerState) != sdk.PowerState.on:
                 raise RuntimeError("Power not on; physical enable may be required")
             call("startJog", robot.startJog, sdk.JogOptSpace.jointSpace,
-                 DEFAULT_JOG_RATE, abs(args.delta_deg), args.joint - 1, args.delta_deg > 0)
+                 args.rate, abs(args.delta_deg), args.joint - 1, args.delta_deg > 0)
             timeout_seconds = 60 if args.restore_initial else (40 if args.target_deg is not None else 10)
             deadline = time.monotonic() + timeout_seconds
             reached = False

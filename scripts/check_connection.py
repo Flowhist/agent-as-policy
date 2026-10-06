@@ -9,10 +9,10 @@ import os
 from pathlib import Path
 import sys
 from datetime import datetime
+from sdk_runtime import sdk_runtime
 
 
 ROOT = Path(__file__).resolve().parent.parent
-LIB = ROOT / "vendor" / "xCoreSDK-Python" / "Release" / "windows"
 
 
 def main():
@@ -35,8 +35,7 @@ def main():
         robot = None
         connected = False
         failed = False
-        with os.add_dll_directory(str(LIB)):
-            sys.path.insert(0, str(LIB))
+        with sdk_runtime():
             try:
                 import xCoreSDK_python as sdk
 

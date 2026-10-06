@@ -1,4 +1,9 @@
 .venv/
+captures/
+logs/*.lock
+logs/web/
+logs/web-simulation/
+logs/web-server.log
 __pycache__/
 *.py[cod]
 logs/sdk/
