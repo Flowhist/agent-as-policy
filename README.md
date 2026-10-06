@@ -43,7 +43,7 @@ python3 scripts/capture.py
 mkdir -p logs/runs logs/sdk captures
 ```
 
-系统视觉依赖与 SDK 环境分开管理；可用 `python3 -c 'import cv2, numpy, scipy, yaml, pyrealsense2, pymodbus, serial'` 检查视觉/串口环境。离线测试用系统 Python 的 pytest，SDK 虚拟环境不要求装 pytest。
+系统视觉依赖与 SDK 环境分开管理；可用 `python3 -c 'import cv2, numpy, scipy, yaml, pyrealsense2, pymodbus, serial'` 检查视觉/串口环境。
 
 网页入口为 `python3 scripts/web_control.py`，本机 `http://127.0.0.1:8080`。启动不自动连接硬件。已有 `agent-policy-web` 用户服务时只保留一个实例；网页持有机器人或相机时不要启动第二个持有者。详见 [Web 控制台](docs/Web控制台.md)。
 
@@ -55,7 +55,7 @@ mkdir -p logs/runs logs/sdk captures
 | 相机至基座外参 | `captures/calibration/session-01/solve-15-validate-5/result.yaml` |
 | 桌面平面 | `captures/calibration/session-01/table-plane.yaml` |
 
-Git 保存了 [此次安装的标定快照](docs/records/2026-10-06/calibration/)，用于恢复、审查和追溯，**不会自动启用**。只有相机/基座安装、RGB 分辨率和桌面基准均未变化且已复核时，才能恢复到上述工作路径。更换安装或桌面应按 [标定指南](docs/固定相机眼在手外标定操作指南.md) 和 [采集入口](docs/标定一键采集.md) 重新采集。原始标定照片仍需从本机 `captures/` 另行迁移，快照不足以重做图像检测。
+Git 保存了 [此次安装的标定快照](docs/records/2026-10-06/calibration/)，用于恢复、审查和追溯，**不会自动启用**。只有相机/基座安装、RGB 分辨率和桌面基准均未变化且已复核时，才能恢复到上述工作路径。安装或桌面变化时按 [标定指南](docs/标定.md) 重新采集或定位。原始标定照片仍需从本机 `captures/` 另行迁移，快照不足以重做图像检测。
 
 - `T_base_camera` 将相机坐标变为机器人基座坐标，平移单位米。TCP 反馈单位是米/弧度；`startJog` 平移距离用毫米、旋转距离用度，速率 0.10 是 10%，不是固定 mm/s。
 - 图像像素方向、用户说的“向内/向右”和 SDK 基座轴不能混用。先通过外参建立映射，不根据屏幕方向直接发送 X/Y 点动。
@@ -69,6 +69,8 @@ Git 保存了 [此次安装的标定快照](docs/records/2026-10-06/calibration/
 当前工具变换为法兰坐标 `[0,0,0.248]` m、旋转零，参考系/基座变换为零。**248 mm 是用户实测的法兰至合理接触点距离**，不是从图像外观推断出的夹爪长度。末端开合轴已验证为工具 X。换装、改工具参数或改变夹持方式后重新验证这些关系。
 
 针对新任务明确以下量：物体顶面/底面高度、抓持接触点、夹指最低点、夹指闭合与释放外廓、目的地承托面及最高障碍。物体底面高度由实际夹持几何推算，不能把 TCP 高度直接当作物体底面高度。抓取位置寄存器是 0..1000 的原始单位，不等于毫米；夹爪状态 2 表示接触，不单独证明物体成功随动。
+
+夹爪协议：读 `0x0200` 初始化状态（0 未初始化、1 完成、2 进行中）、`0x0201` 夹持状态（0 运动、1 到位无物、2 夹持、3 掉落）、`0x0202` 实测位置；写 `0x0101` 力百分比（20..100）、`0x0103` 位置（0 闭合、1000 张开）。`0x0100` 是初始化/回零入口，不自动写入。到位需同时检查状态、位置误差和连续稳定读数，不只等待状态非零。USB 在线不代表夹爪独立电源已通电。
 
 本次成功流程可复用的是方法：
 
@@ -92,20 +94,41 @@ Git 保存了 [此次安装的标定快照](docs/records/2026-10-06/calibration/
 - `stop()` 是异步操作，先等待 idle 再下电。上电后再加入 MoveAbsJ 指令，避免空队列。不得自动切操作模式、清报警、回零或盲目重试。
 - 夹爪断串口不等于停止或断电；机械臂下电也不会松开夹爪。结束时分别报告机器人、夹爪和物体状态。
 
-## 仓库地图
+## 脚本索引
+
+从项目根目录运行。SDK 脚本使用 `.venv/bin/python`；其余使用系统 `python3`。只读 SDK 查询也会连接控制器，须先确认空闲和资源无占用。
+
+| 入口 | 用途与限制 |
+| --- | --- |
+| `check_connection.py`（SDK） | 只读机器人状态、工具、限位和历史报警 |
+| `check_gripper.py` | 只读夹爪状态，不初始化 |
+| `capture.py`、`camera_settings.py` | D455 RGB 单帧采集与统一设置 |
+| `web_control.py`、`web_hardware.py` | 网页与硬件适配；启动服务不自动连接设备 |
+| `sdk_runtime.py` | SDK 加载、独占锁及进程隔离 |
+| `calibration_capture.py` | 网页配对采样；`--direct` 独占设备；`--check-image` 离线检测 |
+| `calibration_solve.py`、`table_plane.py` | 离线外参求解、已知板高度的桌面估计 |
+| `block_top.py` | 离线红色长方体顶面检测，当前尺寸 90.23×29.86×29.61 mm；新对象先适配尺寸/ROI |
+| `placement_rgb.py` | 离线双帧盒沿候选，需提供高度和 ROI，候选必须核对 |
+| `grasp_orientation_ik.py`（SDK） | 只读连续 IK/FK 检查，输入当前起点和矩阵采样路线 |
+| `orientation_joint_step.py`（SDK） | 指定新关节路线的单段执行，拒绝旧朝向路线及其复制版本 |
+| `jog_once.py`（SDK） | 单关节点动，`--execute` 加终端确认才运动；旧初始角度不是安全回位路线 |
+| `gripper_step.py` | 空载小步开合，增量最多 10 原始单位，20% 力，需 `--execute` |
+| `grasp_close.py` | 从全开 1000 以 20% 力逐步闭合至接触；不能对已夹持状态重跑 |
+
+顶面检测示例：`python3 scripts/block_top.py --image captures/example.jpg --output captures/new-top-check`。默认 ROI `[0,500,1280,220]`，可用 `--roi x y width height` 修改，保持原图像素坐标；输出目录必须不存在。通过四边、尺寸、直角、边缘支持和遮挡检查定位，失败拒绝输出中心，不回退到整体色块轮廓。
+
+已完成任务的固定坐标搬运、J1 避让、固定柱下降、朝向补正和盒内布局临时脚本已删除。实现可从提交 `87a3349` 查阅，但旧坐标和状态不构成新任务计划。
+
+## 文件与维护
 
 | 目录/入口 | 用途 |
 | --- | --- |
-| [scripts/README.md](scripts/README.md) | 可用脚本、解释器、是否接硬件、场景限制 |
 | `scripts/` | SDK/相机/串口基础能力、视觉与规划工具、受限执行工具 |
-| `scripts/archive/` | 已完成任务的一次性代码，仅供审阅，直接运行会拒绝 |
-| `tests/` | 离线测试，不连接机械臂或相机 |
 | `config/`、`web/` | 相机参数、服务配置、控制台 |
 | `docs/records/` | 经整理的实验总结、关键日志、照片和标定快照 |
-| `docs/archive/` | 旧开发和会话记录，非操作入口 |
 | `captures/`、`logs/` | 本机原始运行数据；不批量提交生成产物 |
 | `vendor/xCoreSDK-Python/` | 固定版本的官方 SDK 子模块，二进制另行准备 |
 
-离线检查：`python3 -m pytest tests -q`。硬件操作不属于测试步骤；整理代码或文档时不为验证而移动机器人。
+项目测试已按用户要求删除，后续维护做语法、引用和差异检查，不为代码验证连接或移动硬件。任务结束只更新精简接手状态和实验总结，不重复堆叠过程文档。
 
-原始日志默认保留本机，重要运行复制到 `docs/records/<日期>/` 后再提交；不要删除标定、执行尝试记录或仍被计划引用的数据。清理策略见 [仓库维护](docs/仓库维护.md)。
+原始日志默认保留本机，重要运行复制到 `docs/records/<日期>/` 后提交；不要删除标定、执行尝试记录或仍被计划引用的数据。临时脚本用完删除，可通过 Git 历史追溯。SDK 二进制、虚拟环境和凭据不提交；迁移机器时单独准备。
