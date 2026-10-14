@@ -20,7 +20,12 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from web_hardware import Hardware, SimHardware
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.hardware.web_hardware import Hardware, SimHardware
+from scripts.hardware.gripper_monitor import GripperMonitor
+from scripts.hardware.control_settings import load_settings, read_settings, save_settings
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
@@ -32,13 +37,15 @@ def utc():
 
 
 def validate(action, data):
+    if action in {'joint_target', 'jog'} and 'rate' not in data:
+        data = {**data, 'rate': load_settings()['robot']['sdk_rate']}
     if action == "joint_target":
         joint, target, rate = data.get("joint"), data.get("target_deg"), data.get("rate", 0.01)
         if type(joint) is not int or joint not in range(1, 7):
             raise ValueError("Joint must be 1..6")
         if any(type(v) not in (int, float) or not math.isfinite(v) for v in (target, rate)):
             raise ValueError("Finite target and rate required")
-        if not -360 <= target <= 360 or not 0.01 <= rate <= 0.10:
+        if not -360 <= target <= 360 or not 0.01 <= rate <= 1.0:
             raise ValueError("Invalid target or rate")
         return {"joint": joint, "target_deg": target, "rate": rate}
     if action == "gripper_target":
@@ -46,6 +53,11 @@ def validate(action, data):
         if type(target) is not int or not 0 <= target <= 1000:
             raise ValueError("Gripper target must be 0..1000")
         return {"target": target}
+    if action == "grasp_close":
+        target = data.get("target_position", 0)
+        if type(target) is not int or not 0 <= target < 1000:
+            raise ValueError("Closing target must be 0..999")
+        return {"target_position": target}
     if action == "jog":
         joint, delta, rate = data.get("joint"), data.get("delta"), data.get("rate", 0.01)
         if type(joint) is not int or joint not in range(1, 7):
@@ -55,8 +67,8 @@ def validate(action, data):
                 raise ValueError("Finite numeric delta and rate required")
         if not 0.01 <= abs(delta) <= 50:
             raise ValueError("Joint step must be 0.01..50 degrees")
-        if not 0.01 <= rate <= 0.10:
-            raise ValueError("Rate must be 0.01..0.10")
+        if not 0.01 <= rate <= 1.0:
+            raise ValueError("Rate must be 0.01..1.0")
         return {"joint": joint, "delta": delta, "rate": rate}
     if action == "gripper_step":
         delta = data.get("delta")
@@ -97,15 +109,25 @@ def capture_worker(frames, stop):
                        "fps": 10, "fx": intr.fx, "fy": intr.fy, "ppx": intr.ppx, "ppy": intr.ppy,
                        "distortion_model": str(intr.model), "coefficients": list(intr.coeffs),
                        "note": "Raw RGB; do not treat inverse_brown_conrady as OpenCV Brown distortion"}
-        from camera_settings import apply_rgb_settings
+        from scripts.vision.camera_settings import apply_rgb_settings
         apply_rgb_settings(profile, rs)
         warmup = 0
+        previous_number = previous_timestamp = None
         while not stop.is_set():
             result = pipeline.wait_for_frames(2000)
             received = time.monotonic()
             frame = result.get_color_frame()
             warmup += 1
-            if not frame or warmup < 30:
+            if not frame:
+                continue
+            number, timestamp = frame.get_frame_number(), frame.get_timestamp()
+            if previous_number is not None:
+                if number < previous_number or timestamp < previous_timestamp:
+                    raise RuntimeError("Camera frame clock reset; restart preview explicitly")
+                if number == previous_number or timestamp == previous_timestamp:
+                    continue
+            previous_number, previous_timestamp = number, timestamp
+            if warmup < 30:
                 continue
             ok, jpg = cv2.imencode(".jpg", np.asanyarray(frame.get_data()),
                                   [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -211,7 +233,8 @@ class Camera:
             if not self.enabled or self.error:
                 raise RuntimeError(self.error or "Enable web camera preview first")
             packet = self.packet
-            if packet and packet["received_monotonic"] > after:
+            if (packet and packet["received_monotonic"] > after
+                    and 0 <= time.monotonic()-packet["received_monotonic"] <= .5):
                 return packet
             time.sleep(0.02)
         raise RuntimeError("No fresh camera frame; sample rejected")
@@ -242,7 +265,6 @@ class Controller:
         self.capture_request_lock = threading.Lock()
         self.points_path = self.data_dir / "teaching-points.jsonl"
         self.hw.on_robot = lambda state: self.feedback("robot", state)
-        self.hw.on_gripper = lambda state: self.feedback("gripper", state)
         self.points = []
         if self.points_path.exists():
             for line in self.points_path.read_text().splitlines():
@@ -250,6 +272,8 @@ class Controller:
                     self.points.append(json.loads(line))
                 except ValueError:
                     pass
+        self.gripper_monitor = GripperMonitor(
+            self.hw, lambda state: self.feedback("gripper", state), self.gripper_failed)
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
@@ -257,6 +281,15 @@ class Controller:
         with self.lock:
             setattr(self, kind, state)
             self.updated = time.time()
+
+    def gripper_failed(self, message):
+        self.error = message
+        self.feedback("gripper", {"connected": False, "error": message})
+        self.emit("gripper_feedback_failed", message=message)
+        self.stop("gripper_feedback_failed")
+
+    def disconnect_gripper(self):
+        return self.gripper_monitor.call(self.hw.disconnect_gripper)
 
     def emit(self, event, **fields):
         with self.lock:
@@ -286,6 +319,8 @@ class Controller:
     def stop(self, reason="operator_stop"):
         with self.lock:
             self.owner = None
+            if self.pending:
+                self.emit("cancelled", request_id=self.pending[3], reason=reason)
             self.pending = None
             self.stopping.set()
             self.emit("stop_requested", reason=reason,
@@ -298,22 +333,25 @@ class Controller:
                 raise RuntimeError("Motion cancelled or control heartbeat lost")
 
     def submit(self, token, action, data):
-        args = validate(action, data)
         with self.lock:
             self.check(token)
+            args = validate(action, data)
+            if action in {'gripper_target', 'gripper_step', 'grasp_close'}:
+                args['force_percent'] = load_settings()['gripper']['force_percent']
             if self.busy or self.pending:
                 raise ValueError("An action is running; commands are not queued")
             if self.robot.get("operation") == "drag" and action not in {"drag", "save_point", "disconnect_robot"}:
                 raise ValueError("Exit drag teaching before other commands")
             self.busy = True
-            self.pending = (token, action, args)
-            self.emit("accepted", action=action, args=args)
+            request_id = secrets.token_hex(16)
+            self.pending = (token, action, args, request_id)
+            self.emit("accepted", action=action, args=args, request_id=request_id)
+            return request_id
 
     def poll(self):
         robot = self.hw.robot_state()
-        gripper = self.hw.gripper_state()
         with self.lock:
-            self.robot, self.gripper = robot, gripper
+            self.robot = robot
             self.updated = time.time()
 
     def save_point(self, name, check):
@@ -328,8 +366,10 @@ class Controller:
             samples.append(b["joints_deg"])
         if any(max(axis) - min(axis) > 0.01 for axis in zip(*samples)):
             raise RuntimeError("Robot is not stationary; point not saved")
+        gripper = (self.gripper_monitor.snapshot()["state"] if self.gripper.get("connected")
+                   else {"connected": False})
         point = {"id": secrets.token_hex(6), "name": name or f"P{len(self.points) + 1:03d}",
-                 "time": utc(), "robot": b, "gripper": self.hw.gripper_state(),
+                 "time": utc(), "robot": b, "gripper": gripper,
                  "simulation": self.simulate,
                  "note": "Teaching point only; no automatic replay or synchronized calibration image"}
         with self.points_path.open("a") as f:
@@ -343,16 +383,26 @@ class Controller:
         check()
         if action == "capture_calibration":
             return self.capture_calibration(check)
+        if action in {"connect_gripper", "disconnect_gripper", "gripper_target", "gripper_step", "grasp_close"}:
+            def operate():
+                check()
+                if self.robot.get("operation") == "drag":
+                    raise RuntimeError("Exit drag before operating gripper")
+                if action == "gripper_target":
+                    return self.hw.gripper_step(**args, delta=None, check=check)
+                if action == "gripper_step":
+                    return self.hw.gripper_step(**args, check=check)
+                if action == "grasp_close":
+                    if self.simulate:
+                        raise RuntimeError("Simulation cannot confirm real gripper contact")
+                    from scripts.hardware.grasp_close import close_until_contact
+                    return close_until_contact(self.hw, self.emit, check=check, **args)
+                return getattr(self.hw, action)()
+            return self.gripper_monitor.call(operate)
         if action == "jog":
             return self.hw.jog(**args, check=check)
         if action == "joint_target":
             return self.hw.jog(**args, delta=None, check=check)
-        if action == "gripper_target":
-            return self.hw.gripper_step(**args, delta=None, check=check)
-        if action == "gripper_step":
-            if self.robot.get("operation") == "drag":
-                raise RuntimeError("Exit drag before operating gripper")
-            return self.hw.gripper_step(**args, check=check)
         if action == "drag":
             return self.hw.drag(**args)
         if action == "save_point":
@@ -362,7 +412,7 @@ class Controller:
         return getattr(self.hw, action)()
 
     def capture_calibration(self, check):
-        from calibration_capture import stable
+        from scripts.calibration.calibration_capture import stable
         if self.simulate:
             raise RuntimeError("Simulation cannot create real calibration samples")
         def read():
@@ -418,6 +468,7 @@ class Controller:
     def run(self):
         next_poll = 0
         while not self.shutdown.is_set():
+            job = None
             try:
                 with self.lock:
                     if self.owner and time.monotonic() >= self.expires:
@@ -425,6 +476,8 @@ class Controller:
                     job = self.pending
                     self.pending = None
                 if self.stopping.is_set():
+                    if job:
+                        self.emit("cancelled", request_id=job[3], reason="stop_requested")
                     try:
                         self.hw.safe_stop()
                         self.emit("stopped")
@@ -432,7 +485,7 @@ class Controller:
                         self.stopping.clear()
                         self.busy = False
                 elif job:
-                    token, action, args = job
+                    token, action, args, request_id = job
                     if action == "capture_calibration":
                         try:
                             self.capture_result = self.run_action(token, action, args)
@@ -445,7 +498,7 @@ class Controller:
                             self.capture_done.set()
                         continue
                     result = self.run_action(token, action, args)
-                    self.emit("completed", action=action, result=result)
+                    self.emit("completed", action=action, result=result, request_id=request_id)
                     self.error = None
                     self.busy = False
                 if job or time.monotonic() >= next_poll:
@@ -453,7 +506,7 @@ class Controller:
                     next_poll = time.monotonic() + 0.25
             except Exception as exc:
                 self.error = str(exc)
-                self.emit("error", message=str(exc))
+                self.emit("error", message=str(exc), request_id=job[3] if job else None)
                 with self.lock:
                     self.owner = None
                     self.pending = None
@@ -463,7 +516,7 @@ class Controller:
                 except Exception as cleanup:
                     self.emit("stop_failed", message=str(cleanup))
                 # Stop polling failed connections; recovery is explicit.
-                for method in (self.hw.disconnect_robot, self.hw.disconnect_gripper):
+                for method in (self.hw.disconnect_robot, self.disconnect_gripper):
                     try:
                         method()
                     except Exception as cleanup:
@@ -478,7 +531,7 @@ class Controller:
         except Exception as exc:
             self.emit("shutdown_stop_failed", message=str(exc))
         finally:
-            for method in (self.hw.disconnect_robot, self.hw.disconnect_gripper):
+            for method in (self.hw.disconnect_robot, self.disconnect_gripper):
                 try:
                     method()
                 except Exception as exc:
@@ -487,6 +540,7 @@ class Controller:
     def state(self, token):
         with self.lock:
             return {"simulation": self.simulate, "robot": self.robot, "gripper": self.gripper,
+                    "settings": read_settings(),
                     "owner": self.owner == token, "occupied": self.owner is not None,
                     "busy": self.busy, "stopping": self.stopping.is_set(),
                     "updated": self.updated, "error": self.error,
@@ -495,6 +549,7 @@ class Controller:
     def close(self):
         self.shutdown.set()
         self.stopping.set()
+        self.gripper_monitor.close()
         self.thread.join(timeout=10)
         if not self.thread.is_alive():
             self.log.close()
@@ -577,6 +632,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200, {"token": token})
             token = self.token()
             control = self.server.control
+            if path in {"/api/camera/capture", "/api/gripper/snapshot"}:
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    raise PermissionError("Task sensor clients must run on the robot host")
+                if control.simulate:
+                    raise ValueError("Simulation cannot provide real task sensor data")
+                if path == "/api/gripper/snapshot":
+                    return self.respond(200, control.gripper_monitor.snapshot(**data))
+                after = data.get("after", 0.)
+                if type(after) not in (int, float) or not math.isfinite(after) or not 0 <= after <= time.monotonic():
+                    raise ValueError("after must be a past host monotonic timestamp")
+                # Span several frame periods after the request to exclude queued frames.
+                packet = self.server.camera.fresh_packet(max(after, time.monotonic())+.4, lambda: None)
+                return self.respond(200, packet)
             if path == "/api/calibration/save":
                 control.check(token)
                 self.server.calibration.start()
@@ -595,8 +663,19 @@ class Handler(BaseHTTPRequestHandler):
                 with control.lock:
                     if control.owner == token:
                         control.stop("control_released")
+            elif path == "/api/settings":
+                with control.lock:
+                    control.check(token)
+                    if control.busy or control.pending or control.robot.get('operation') not in (None, 'idle'):
+                        raise ValueError('Settings require idle devices')
+                    if control.gripper.get('connected') and control.gripper.get('status') == 0:
+                        raise ValueError('Wait for the gripper to stop')
+                    result = save_settings(data.get('values'), data.get('revision'))
+                    control.emit('settings_saved', **result)
+                return self.respond(200, result)
             elif path == "/api/action":
-                control.submit(token, data.get("action"), data.get("args", {}))
+                request_id = control.submit(token, data.get("action"), data.get("args", {}))
+                return self.respond(200, {"ok": True, "request_id": request_id})
             elif path == "/api/camera":
                 control.check(token)
                 if type(data.get("enabled")) is not bool:
@@ -660,7 +739,7 @@ class CalibrationSave:
 
     def run(self):
         try:
-            result = subprocess.run([sys.executable, str(ROOT / "scripts/calibration_capture.py")],
+            result = subprocess.run([sys.executable, "-m", "scripts.calibration.calibration_capture"],
                                     cwd=ROOT, capture_output=True, text=True, timeout=30)
             if result.returncode:
                 raise RuntimeError((result.stderr or result.stdout).strip())

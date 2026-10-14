@@ -1,0 +1,311 @@
+{
+  "contract_version": 2,
+  "adapter_id": "xmate",
+  "capability_version": "10",
+  "run_id": "speed-fix-20261012-verification",
+  "goal": "Verify explicit online scale with fresh single and dense J6 routes, return and inspect",
+  "revision": 1,
+  "based_on_state": 0,
+  "stages": [
+    {
+      "id": "single_out_check",
+      "skill": "check_joint_route",
+      "args": {
+        "route_path": "/home/embotic/agent-as-policy/captures/speed-fix-20261012/single_out.json"
+      },
+      "checks": [
+        {
+          "id": "single_out_check_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "single_out_check.status",
+            "op": "eq",
+            "value": "checked"
+          },
+          "evidence": [
+            "single_out_check.status"
+          ]
+        }
+      ],
+      "expected": "Fresh route checked",
+      "requires": [],
+      "on_fail": "stop",
+      "on_unknown": "stop"
+    },
+    {
+      "id": "single_out",
+      "skill": "execute_joint_route",
+      "args": {},
+      "checks": [
+        {
+          "id": "single_out_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "single_out.status",
+            "op": "eq",
+            "value": "completed"
+          },
+          "evidence": [
+            "single_out.status"
+          ]
+        },
+        {
+          "id": "single_out_off",
+          "mode": "local",
+          "condition": {
+            "ref": "single_out.final_power",
+            "op": "eq",
+            "value": "PowerState.off"
+          },
+          "evidence": [
+            "single_out.final_power"
+          ]
+        }
+      ],
+      "expected": "Complete checked J6 motion",
+      "requires": [
+        "single_out_check_ok"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop",
+      "args_from": {
+        "checked_route_path": "single_out_check.checked_route_path"
+      }
+    },
+    {
+      "id": "single_return_check",
+      "skill": "check_joint_route",
+      "args": {
+        "route_path": "/home/embotic/agent-as-policy/captures/speed-fix-20261012/single_return.json"
+      },
+      "checks": [
+        {
+          "id": "single_return_check_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "single_return_check.status",
+            "op": "eq",
+            "value": "checked"
+          },
+          "evidence": [
+            "single_return_check.status"
+          ]
+        }
+      ],
+      "expected": "Fresh route checked",
+      "requires": [
+        "single_out_ok",
+        "single_out_off"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop"
+    },
+    {
+      "id": "single_return",
+      "skill": "execute_joint_route",
+      "args": {},
+      "checks": [
+        {
+          "id": "single_return_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "single_return.status",
+            "op": "eq",
+            "value": "completed"
+          },
+          "evidence": [
+            "single_return.status"
+          ]
+        },
+        {
+          "id": "single_return_off",
+          "mode": "local",
+          "condition": {
+            "ref": "single_return.final_power",
+            "op": "eq",
+            "value": "PowerState.off"
+          },
+          "evidence": [
+            "single_return.final_power"
+          ]
+        }
+      ],
+      "expected": "Complete checked J6 motion",
+      "requires": [
+        "single_return_check_ok"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop",
+      "args_from": {
+        "checked_route_path": "single_return_check.checked_route_path"
+      }
+    },
+    {
+      "id": "dense_out_check",
+      "skill": "check_joint_route",
+      "args": {
+        "route_path": "/home/embotic/agent-as-policy/captures/speed-fix-20261012/dense_out.json"
+      },
+      "checks": [
+        {
+          "id": "dense_out_check_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "dense_out_check.status",
+            "op": "eq",
+            "value": "checked"
+          },
+          "evidence": [
+            "dense_out_check.status"
+          ]
+        }
+      ],
+      "expected": "Fresh route checked",
+      "requires": [
+        "single_return_ok",
+        "single_return_off"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop"
+    },
+    {
+      "id": "dense_out",
+      "skill": "execute_joint_route",
+      "args": {},
+      "checks": [
+        {
+          "id": "dense_out_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "dense_out.status",
+            "op": "eq",
+            "value": "completed"
+          },
+          "evidence": [
+            "dense_out.status"
+          ]
+        },
+        {
+          "id": "dense_out_off",
+          "mode": "local",
+          "condition": {
+            "ref": "dense_out.final_power",
+            "op": "eq",
+            "value": "PowerState.off"
+          },
+          "evidence": [
+            "dense_out.final_power"
+          ]
+        }
+      ],
+      "expected": "Complete checked J6 motion",
+      "requires": [
+        "dense_out_check_ok"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop",
+      "args_from": {
+        "checked_route_path": "dense_out_check.checked_route_path"
+      }
+    },
+    {
+      "id": "dense_return_check",
+      "skill": "check_joint_route",
+      "args": {
+        "route_path": "/home/embotic/agent-as-policy/captures/speed-fix-20261012/dense_return.json"
+      },
+      "checks": [
+        {
+          "id": "dense_return_check_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "dense_return_check.status",
+            "op": "eq",
+            "value": "checked"
+          },
+          "evidence": [
+            "dense_return_check.status"
+          ]
+        }
+      ],
+      "expected": "Fresh route checked",
+      "requires": [
+        "dense_out_ok",
+        "dense_out_off"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop"
+    },
+    {
+      "id": "dense_return",
+      "skill": "execute_joint_route",
+      "args": {},
+      "checks": [
+        {
+          "id": "dense_return_ok",
+          "mode": "local",
+          "condition": {
+            "ref": "dense_return.status",
+            "op": "eq",
+            "value": "completed"
+          },
+          "evidence": [
+            "dense_return.status"
+          ]
+        },
+        {
+          "id": "dense_return_off",
+          "mode": "local",
+          "condition": {
+            "ref": "dense_return.final_power",
+            "op": "eq",
+            "value": "PowerState.off"
+          },
+          "evidence": [
+            "dense_return.final_power"
+          ]
+        }
+      ],
+      "expected": "Complete checked J6 motion",
+      "requires": [
+        "dense_return_check_ok"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop",
+      "args_from": {
+        "checked_route_path": "dense_return_check.checked_route_path"
+      }
+    },
+    {
+      "id": "final",
+      "skill": "observe",
+      "args": {
+        "sources": [
+          "rgb",
+          "gripper"
+        ]
+      },
+      "checks": [
+        {
+          "id": "final_ok",
+          "mode": "model",
+          "condition": "Empty gripper and unchanged object layout after J6 return",
+          "evidence": [
+            "final.rgb",
+            "final.gripper"
+          ]
+        }
+      ],
+      "expected": "Final visual verification",
+      "requires": [
+        "dense_return_ok",
+        "dense_return_off"
+      ],
+      "on_fail": "stop",
+      "on_unknown": "stop"
+    }
+  ],
+  "success": [
+    "final_ok"
+  ]
+}

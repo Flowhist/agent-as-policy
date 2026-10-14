@@ -1,6 +1,7 @@
 .venv/
 captures/
 logs/
+_rokae_log_/
 __pycache__/
 *.py[cod]
 .pytest_cache/

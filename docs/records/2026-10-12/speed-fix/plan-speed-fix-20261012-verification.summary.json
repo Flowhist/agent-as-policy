@@ -1,0 +1,204 @@
+{
+  "run_id": "speed-fix-20261012-verification",
+  "revision": 1,
+  "status": "completed",
+  "log_path": "logs/runs/plan-speed-fix-20261012-verification.jsonl",
+  "results": {
+    "single_out_check": {
+      "status": "checked",
+      "checked_route_path": "/home/embotic/agent-as-policy/captures/joint-route-ffbf777c7ac941c396e69857ae06d987.json",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-293bc01238c94171876dde6eb29fac54.jsonl",
+      "motion_sent": false,
+      "segment_count": 1
+    },
+    "single_out": {
+      "status": "completed",
+      "joints_deg": [
+        -80.63115692138672,
+        47.20637512207031,
+        -64.0946502685547,
+        -0.00839080810546875,
+        -68.72632141113282,
+        -87.28673400878907
+      ],
+      "tcp_m_rad": [
+        0.2510461847908821,
+        -0.6864413375820758,
+        0.1128121528157359,
+        3.1411223521900107,
+        -0.00015888376254991505,
+        -3.0253777154163486
+      ],
+      "motion_sent": true,
+      "final_power": "PowerState.off",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-ba11edea237b4c1aaf8617ae78755046.jsonl"
+    },
+    "single_return_check": {
+      "status": "checked",
+      "checked_route_path": "/home/embotic/agent-as-policy/captures/joint-route-64e3d418655b40e38d4a52bdf805eeb5.json",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-14f50c3ed13444f68db996682b1d0c77.jsonl",
+      "motion_sent": false,
+      "segment_count": 1
+    },
+    "single_return": {
+      "status": "completed",
+      "joints_deg": [
+        -80.63115692138672,
+        47.20635223388672,
+        -64.0946502685547,
+        -0.008349609374999999,
+        -68.72634887695312,
+        -99.28671569824219
+      ],
+      "tcp_m_rad": [
+        0.25104632921098347,
+        -0.6864412483391317,
+        0.11281242242857659,
+        3.1410996283040786,
+        -5.718357448052748e-05,
+        -2.815938722084184
+      ],
+      "motion_sent": true,
+      "final_power": "PowerState.off",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-28305943b4b04fe280b1aef3acc195f7.jsonl"
+    },
+    "dense_out_check": {
+      "status": "checked",
+      "checked_route_path": "/home/embotic/agent-as-policy/captures/joint-route-d8286fd7115440fca0b5002000767c32.json",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-eea6ae521e30483c9e7344df62205a6b.jsonl",
+      "motion_sent": false,
+      "segment_count": 12
+    },
+    "dense_out": {
+      "status": "completed",
+      "joints_deg": [
+        -80.63115692138672,
+        47.20632934570313,
+        -64.09470748901367,
+        -0.00836334228515625,
+        -68.72634887695312,
+        -87.28673400878907
+      ],
+      "tcp_m_rad": [
+        0.2510462992857561,
+        -0.6864410669634359,
+        0.11281247522263915,
+        3.1411220916558964,
+        -0.0001584489874616794,
+        -3.025377889547031
+      ],
+      "motion_sent": true,
+      "final_power": "PowerState.off",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-26293461617c467ba07306b9943d5185.jsonl"
+    },
+    "dense_return_check": {
+      "status": "checked",
+      "checked_route_path": "/home/embotic/agent-as-policy/captures/joint-route-8fd9104bce81456f9cc621243a02b7fe.json",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-f378f7e578784cd4b190dd672c4e3a3e.jsonl",
+      "motion_sent": false,
+      "segment_count": 12
+    },
+    "dense_return": {
+      "status": "completed",
+      "joints_deg": [
+        -80.63114547729492,
+        47.20632934570313,
+        -64.0946502685547,
+        -0.008335876464843751,
+        -68.72634887695312,
+        -99.28667449951172
+      ],
+      "tcp_m_rad": [
+        0.25104664001811466,
+        -0.6864412864133159,
+        0.112812848101012,
+        3.141100055251063,
+        -5.6801215360914906e-05,
+        -2.815939415596531
+      ],
+      "motion_sent": true,
+      "final_power": "PowerState.off",
+      "log_path": "/home/embotic/agent-as-policy/logs/runs/joint-route-eb17daa962e3412aa2440540985b26ea.jsonl"
+    },
+    "final": {
+      "origin": "live",
+      "rgb": {
+        "image_path": "/home/embotic/agent-as-policy/captures/20261012-052139-199959-0400.png",
+        "metadata_path": "/home/embotic/agent-as-policy/captures/20261012-052139-199959-0400.json",
+        "metadata": {
+          "received_monotonic": 14261.870071843,
+          "camera": {
+            "serial": "141322252639",
+            "width": 1280,
+            "height": 720,
+            "fps": 10,
+            "fx": 633.7557983398438,
+            "fy": 632.893798828125,
+            "ppx": 635.8982543945312,
+            "ppy": 370.66729736328125,
+            "distortion_model": "distortion.inverse_brown_conrady",
+            "coefficients": [
+              -0.05717439576983452,
+              0.06785620748996735,
+              -0.0006551968399435282,
+              -0.0009665024117566645,
+              -0.0213430505245924
+            ],
+            "note": "Raw RGB; do not treat inverse_brown_conrady as OpenCV Brown distortion"
+          },
+          "frame": {
+            "timestamp_ms": 1791796898955.0225,
+            "clock_domain": "timestamp_domain.global_time",
+            "frame_number": 117339,
+            "host_received_utc": "2026-10-12T09:21:39.119604+00:00"
+          }
+        }
+      },
+      "gripper": {
+        "state": {
+          "connected": true,
+          "initialized": 1,
+          "status": 1,
+          "position": 480,
+          "sequence": 46418,
+          "sampled_monotonic": 14261.967196372,
+          "sampled_utc": "2026-10-12T09:21:39.132767+00:00"
+        },
+        "samples": [
+          {
+            "connected": true,
+            "initialized": 1,
+            "status": 1,
+            "position": 480,
+            "sequence": 46418,
+            "sampled_monotonic": 14261.967196372,
+            "sampled_utc": "2026-10-12T09:21:39.132767+00:00"
+          }
+        ],
+        "stable": true,
+        "age_seconds": 0.06969998400018085
+      },
+      "collected_at": "2026-10-12T09:21:39.203496+00:00"
+    }
+  },
+  "checks": {
+    "single_out_check_ok": "pass",
+    "single_out_ok": "pass",
+    "single_out_off": "pass",
+    "single_return_check_ok": "pass",
+    "single_return_ok": "pass",
+    "single_return_off": "pass",
+    "dense_out_check_ok": "pass",
+    "dense_out_ok": "pass",
+    "dense_out_off": "pass",
+    "dense_return_check_ok": "pass",
+    "dense_return_ok": "pass",
+    "dense_return_off": "pass",
+    "final_ok": "pass"
+  },
+  "timing": {
+    "plan_elapsed_s": 109.106,
+    "tool_elapsed_s": 18.905,
+    "review_wait_s": 90.157
+  }
+}

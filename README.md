@@ -1,134 +1,143 @@
 # xMate SR4-C 机器人与相机操作
 
-本仓库控制珞石 xMate SR4-C、固定 D455 相机和 Modbus 夹爪。2026-10-06 已在实机完成 RGB 定位、对齐、抓取、搬运入盒、释放与退出。当前是经过验证的工具和任务执行代码集合，**不是任意场景的自动抓取系统**。
+本仓库控制珞石 xMate SR4-C、固定 D455 相机和 Modbus 夹爪，已完成 RGB 定位、抓取、搬运入盒、释放和图像验收。当前是实机验证过的工具与任务执行代码集合，**不是任意场景的自动抓取系统**。
 
-新 agent 先读本文，再读 [当前进展与接手指南](docs/当前进展与接手指南.md)。后者只记录最后已知状态，不能代替实时读取。具体成功过程与证据见 [首次完整抓放](docs/records/2026-10-06/README.md)。
+## 文档入口
 
-## 五分钟接手
+新 agent 先读本文；其余按任务读取，各项详细约定只在对应文档维护。
 
-1. 明确本轮任务和已有授权：目标物、目的地、允许动作、速率、力设置。用户已授权的动作不反复询问；仅在缺少影响执行的现场信息或反馈异常时补充核实。
-2. 确认无人通过示教器、网页或另一个脚本运动机器人。手动移动会使旧起点和旧路线失效。SDK 的连接/断开也可能停止运动，状态读取只能在设备空闲时做。
-3. 在项目根目录使用下面的只读入口，读实际模式、电源、关节、TCP、工具和夹爪状态，拍一张当前 RGB。不要把历史日志的最大文件名当作现场状态。
-4. 根据当前图像和标定确定物体/目标区域，再规划新路线。高位观测有遮挡时，可在已授权范围内规划避让、拍照，再从实际姿态规划后续动作。
-5. 全路线检查通过后可连续执行，不必对每个小步重复征求同意；保留自动停止、反馈监测和执行后图像验收。
+| 文档 | 内容与使用时机 |
+| --- | --- |
+| 本文 | 当前进展、安装与物件参数、任务入口、脚本索引 |
+| [embodied-agent skill](.agents/skills/embodied-agent/SKILL.md) | 执行、规划或审查实机任务时的决策规则 |
+| [计划指南](.agents/skills/embodied-agent/references/plan-format.md) | 组装 plan.json、视觉辅助函数、批量路径输入、审核接回 |
+| [工具与数据契约](docs/工具与数据契约.md) | 设备工具边界、路线格式、数值保护、返回证据；按需查阅 |
+| [Web 控制台](docs/Web控制台.md) | 服务启动、网页操作、常驻传感器与控制权、新帧采样 |
+| [标定](docs/标定.md) | 安装变化后的配对采集、外参求解、桌面与精度复核 |
+| [维护记录](docs/维护记录.md)、[实机记录](docs/records/) | 变更和实验追溯；历史状态及当时的待办不代替当前状态 |
 
-```bash
-# 仅当设备空闲且相关资源未被其他进程持有时运行。
-.venv/bin/python scripts/check_connection.py
-python3 scripts/check_gripper.py
-python3 scripts/capture.py
-```
+## 当前状态与开发方向
 
-这些命令不发送运动、夹爪开合或初始化命令。不要为了解项目而操作硬件。查询日志在 `logs/runs/`，照片在 `captures/`。
+以下为最后已验证结果，不是实时读数；新任务重新观测，历史路线不得重放。
+
+- **速度修复已入项目。** 2026-10-12 17:23 验收：每次路线显式设置在线倍率为 1，当次任务速率为 10%。同一 J6 12°行程，Web Jog 7.20°/秒、agent 单段 7.18、12 路点 7.20，相对原 1.08 约快 6.7 倍。最后机械臂返回、下电断开，空夹位置 480，倍率保留 1。[根因对照](docs/records/2026-10-12/speed-diagnostic/README.md)、[修复验收](docs/records/2026-10-12/speed-fix/README.md)。
+- **完整抓放已成功，5 分钟目标尚未验收。** [14:12 回合](docs/records/2026-10-12/pick-place-1412.md)已验证统一计划、批量预检和 1 mm 过渡；[16:15 回合](docs/records/2026-10-12/pick-place-1615.md)请求到验收约 443 秒，连续阶段未再被控制权释放竞态阻塞。速度修复后尚未重跑完整抓放，不能按单轴提速比例推算总耗时。
+- **验证边界。** 当前 FK 检查最大单轴间隔 1°；显式携物反馈闭环及候选成本排序已实现，尚无其完整抓放实机验收记录。下一步用新场景验证端到端耗时与效果，保留最终图像验收。
+- **可配置速率已实机验证有效。** 2026-10-13 用户确认：提高 SDK 速率后，实际运动速度有提升。具体测试比例及定量速度未提供，不推断整个 1%..100% 范围均已验收。
+
+个人项目优先直接使用当前设备，不要求离线接收、冻结或预览流程。策略由 agent 决定，执行器顺序调用并审核，适配器封装设备保护；换设备时替换工具实现、能力说明和现场配置。场景算法由任务代码编写或复用，不逐个注册为设备工具，不引入独立模型服务或异常自动恢复。
+
+当前只支持 [计划 Schema v2](config/task-plan.schema.json)；[xMate 能力清单](config/capabilities/)版本 11，含 8 个工具。用户记录的策略配置为 `gpt-6-astra / medium`，沿用现有 Sub2API 凭据、不改全局默认；允许上传必要现场图片，费用不设上限，不上传凭据或整仓库。这不证明当前聊天实际模型。
+
+## 当前设备与物件参数速查
+
+确认仍为同一物件和安装、用户未说明更换时，直接复用尺寸；位置、朝向、支撑、夹持、盒内占用和动作目标按本轮确定。
+
+| 对象 / 参数 | 已知值与边界 |
+| --- | --- |
+| 红色三联长方体 | 用户实测长 × 宽 × 高 **90.23 × 29.86 × 29.61 mm**；仅正常平放原桌面时顶面离桌 29.61 mm |
+| 白色灰底纸盒 | 盒沿离桌 **50 mm**；用户允许忽略底厚、承托面近似桌面；换盒、内衬或垫高后重核 |
+| 纸盒开口 | RGB 两次估计约 **268 × 192 mm**，不是精确实测内径或本轮可放置区域 |
+| 工具 TCP | 法兰至合理接触点 **248 mm**，平移 `[0,0,0.248]` m、旋转零；参考系/基座变换零，执行前核对实际 toolset |
+| 夹爪开合轴 | **工具 X 轴**，不等于图像水平轴或基座 X 轴 |
+| 夹指最低点 | 朝下抓取姿态下比 TCP 低 **20 mm**；姿态变化按工具方向换算，不恒为基座竖直向下 |
+| 夹爪最大外宽 | **78 mm**；不是两指内侧净开度 |
+| 未知工具外廓 | 指长、指厚、毫米内开度及线缆外廓无实测记录；历史 110 × 60/70 mm 携物外廓仅为规划假设 |
+| 夹爪位置 / 力 | **0..1000 寄存器单位**，0 闭、1000 全开，未标定为毫米；力由 YAML 配置，默认 **20%**，不是牛顿数 |
+| 夹爪动作 | move_gripper 单次变化最多 **500**；close_gripper 从初始化完成、全开空夹 1000 开始，目标 **0..999**，不自动回零 |
+| 机械臂速率 | **1%..100%**，默认读取 YAML；10% 写作 **0.10**，不是 10 mm/s；按本轮授权与几何确定 |
+
+物块/盒子/TCP 来源见[首次抓放](docs/records/2026-10-06/README.md#本次几何与流程)与[再次抓放](docs/records/2026-10-06/repeat-pick-place/README.md#本轮定位与执行)；夹指 20 mm、外宽 78 mm 为用户 2026-10-10 18:38 补充。历史接触/释放高度及寄存器位置不是本轮动作默认值。
+
+## 共享控制参数
+
+[config/control.yaml](config/control.yaml) 是 Web 与 agent 的默认参数源：`robot.sdk_rate` 为 0.01..1.0 比例（默认 0.10），`gripper.force_percent` 为 20..100 整数（默认 20）。比例不是绝对角速度，力不是牛顿数；开放范围不代表所有速率已实机验收。
+
+Web 参数栏读取并保存该文件；仅持有控制权且空闲时可保存，保存不触发动作。agent 新规划省略 rate 时读取 YAML，显式 rate 仅用于本轮明确覆盖；已检查路线固定原速率，不受后续配置修改影响。夹爪在每次动作接收时读取力度。在线倍率仍固定为 1，不作为第二个速度旋钮。配置错误拒绝读取/动作，不静默回退。
+
+查看生效值：`python3 -m scripts.hardware.control_settings`。系统 Python 和 SDK 虚拟环境均需 PyYAML：`.venv/bin/python -m pip install 'PyYAML>=6,<7'`。新代码需在设备空闲后重启已有 Web 服务才能加载。
+
+## 实机任务最短入口
+
+完整任务使用一个任务目录和统一 `plan.json`，由 `run_plan.py` 推进到最终验收；单次只读或明确工具调试除外。目标是请求到验收 **300 秒内**，不以赶时间跳过保护、提速或强杀进程。操作范围按本轮 prompt，不新增审批流程。
+
+1. 用 `python3 -m scripts.hardware.sensor_client status` 查看连接、忙碌和控制权；确认设备空闲、无示教器或其他所有者冲突。按[常驻接入](docs/Web控制台.md#任务脚本接入)连接缺失传感器。
+2. 调用 `observe` 取得 RGB/夹爪反馈，`robot_state` 取得空闲机械臂实读状态。一帧同时核对目标、目的地、占用、朝向和障碍；同一系统 Python 进程用 `scene_batch.analyze_frame` 共享标定并行计算。
+3. 同进程用 `PlanBuilder` 组装已知剩余阶段。多阶段优先一次 `plan_joint_routes` 预检，通过 `args_from` 消费分段结果，避免预检后重复规划；接口见[计划指南](.agents/skills/embodied-agent/references/plan-format.md)。
+4. 执行器推进 local 检查；`needs_review` 时直接看证据并提交审核。携物绑定本轮闭合位置、监测反馈，释放后以新图验收；场景变化重新规划，工具错误停止，不续跑或重放结果不明动作。
+
+正常执行少交流、不查 Git/源码或修改共享框架；只报阻塞、响应插话及最终结果。等待用合理的 30–60 秒窗口，不反复 tail、扫描目录或空轮询。完成后立即报告实际状态与总耗时，维护工作另做。
 
 ## 环境与连接
 
-| 项目 | 已验证配置 |
+| 项目 | 当前配置 |
 | --- | --- |
-| 主机 | Ubuntu 22.04 x86_64；本机工作区 `/home/embotic/agent-as-policy` |
-| 机器人 | `192.168.0.160`，SDK 型号 `XMS4-R800-B4S1A2C`，6 轴 |
-| SDK | xCoreSDK-Python 0.7.1，Python 3.10 ABI，控制器 xCore 3.2.1 |
-| SDK Python | `.venv/bin/python`；官方扩展位于 `vendor/xCoreSDK-Python/Release/linux/` |
-| 视觉/夹爪 Python | 系统 `python3`；numpy、scipy、OpenCV、PyYAML、pyrealsense2、pymodbus、pyserial |
-| 相机 | D455，serial `141322252639`，RGB 1280×720 / 10 Hz |
-| RGB 设置 | `config/camera_rgb.json`，拍照与网页共用；当前关闭自动曝光 |
-| 夹爪 | `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ0296VS-if00-port0`，9600/8N1，Modbus 地址 2 |
-| 本次速率/力 | 机器人 10%，夹爪 20%；新任务沿用需符合该任务授权和几何条件 |
+| 主机 | Ubuntu 22.04 x86_64；工作区 `/home/embotic/agent-as-policy` |
+| 机械臂 | xMate SR4-C 六轴，`XMS4-R800-B4S1A2C`，IP `192.168.0.160` |
+| SDK | xCoreSDK-Python 0.7.1 / Python 3.10 ABI，控制器 xCore 3.2.1；解释器 `.venv/bin/python`，扩展 `vendor/xCoreSDK-Python/Release/linux/` |
+| 视觉 / 串口 | 系统 `python3`；numpy、scipy、OpenCV、PyYAML、pyrealsense2、pymodbus、pyserial |
+| 相机 | D455，serial `141322252639`，RGB 1280×720 / 10 Hz；共用 `config/camera_rgb.json`，当前关闭自动曝光 |
+| 夹爪通信 | `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ0296VS-if00-port0`，9600/8N1，Modbus 地址 2 |
 
-**SDK 与 OpenCV/RealSense 必须在不同进程。** 断开 SDK 后原生库仍然留在进程中，不能再导入视觉库。`sdk_runtime.py` 提供双向导入保护和 `logs/robot-sdk.lock` 独占锁。视觉进程输出 JSON/图像，SDK 进程读数值、做运动学检查及执行；夹爪可由独立系统 Python 子进程处理。
+**SDK 与 OpenCV/RealSense 必须分进程。** SDK 断开后原生库仍留在进程中；`sdk_runtime.py` 提供双向导入保护及 `logs/robot-sdk.lock` 独占锁。任务 SDK 与网页机械臂连接不可并存，常驻相机/串口复用现有服务。SDK 连接/断开本身可能停止运动，只读查询也须设备空闲。
 
-新机器用 `git clone --recurse-submodules`，已有克隆用 `git submodule update --init --recursive`。SDK 二进制、`.venv` 和 USB 驱动不随 Git 发布，需准备与 Python ABI 匹配的 Linux 扩展。不要复制 Windows 虚拟环境。`python3 -m venv .venv` 只创建 SDK 解释器，不会安装官方扩展。运行脚本前创建本地输出目录：
+新机器用 `git clone --recurse-submodules`，已有克隆用 `git submodule update --init --recursive`。SDK 二进制、`.venv`、USB 驱动另行准备，不复制 Windows 环境；`python3 -m venv .venv` 不会安装官方扩展。视觉/串口依赖与 SDK 分开管理。
 
 ```bash
 mkdir -p logs/runs logs/sdk captures
+python3 -m pip install --user -r requirements-policy.txt
+python3 -c 'import cv2, numpy, scipy, yaml, pyrealsense2, pymodbus, serial'
 ```
 
-系统视觉依赖与 SDK 环境分开管理；可用 `python3 -c 'import cv2, numpy, scipy, yaml, pyrealsense2, pymodbus, serial'` 检查视觉/串口环境。
-
-网页入口为 `python3 scripts/web_control.py`，本机 `http://127.0.0.1:8080`。启动不自动连接硬件。已有 `agent-policy-web` 用户服务时只保留一个实例；网页持有机器人或相机时不要启动第二个持有者。详见 [Web 控制台](docs/Web控制台.md)。
+网页入口 `python3 scripts/web_control.py`，本机 `http://127.0.0.1:8080`；启动不连接硬件。已有 `agent-policy-web` 用户服务时只保留一个实例，管理方式见 [Web 控制台](docs/Web控制台.md)。了解项目或整理文档不需要连接设备。
 
 ## 标定与坐标
 
 | 数据 | 本机工作路径 |
 | --- | --- |
-| 相机内参、配对样本 | `captures/calibration/session-01/samples.yaml` |
+| 内参、配对样本 | `captures/calibration/session-01/samples.yaml` |
 | 相机至基座外参 | `captures/calibration/session-01/solve-15-validate-5/result.yaml` |
 | 桌面平面 | `captures/calibration/session-01/table-plane.yaml` |
 
-Git 保存了 [此次安装的标定快照](docs/records/2026-10-06/calibration/)，用于恢复、审查和追溯，**不会自动启用**。只有相机/基座安装、RGB 分辨率和桌面基准均未变化且已复核时，才能恢复到上述工作路径。安装或桌面变化时按 [标定指南](docs/标定.md) 重新采集或定位。原始标定照片仍需从本机 `captures/` 另行迁移，快照不足以重做图像检测。
+[标定快照](docs/records/2026-10-06/calibration/)不自动启用；仅相机/基座安装、RGB 分辨率和桌面基准未变且复核后，才能恢复到上述路径。原始照片另行保留，快照不能重做图像检测。重新采集与变更判断见[标定指南](docs/标定.md)。
 
-- `T_base_camera` 将相机坐标变为机器人基座坐标，平移单位米。TCP 反馈单位是米/弧度；`startJog` 平移距离用毫米、旋转距离用度，速率 0.10 是 10%，不是固定 mm/s。
-- 图像像素方向、用户说的“向内/向右”和 SDK 基座轴不能混用。先通过外参建立映射，不根据屏幕方向直接发送 X/Y 点动。
-- RGB 使用 `inverse_brown_conrady`。用 RealSense 官方 `rs2_deproject_pixel_to_point` 去畸变，不把这些系数直接传给普通 OpenCV Brown 模型。裁剪/缩放需要同步处理内参，或者保留原图像素坐标。
-- 桌面 `n·p + d = 0`，n 朝上；`n·p + d` 是离桌高度。RGB 像素射线与已知高度平面求交即可定位，不要求每项任务都用深度，但 RGB 本身不能无条件恢复高度。
-- 必须区别物体顶面、可见侧面、盒沿与盒底。颜色轮廓仅用于找候选，不能把整体轮廓中心当作顶面中心。顶面边线、已知尺寸和高度共同验证；盒沿按其自身高度求交。未知目标不能照抄本次尺寸。
-- 本次外参使用 15 组拟合、5 组独立验证，验证平移最大约 3.44 mm；桌面平面仍是暂定估计。TCP 对估计目标的微小残差不等于实物定位精度。
+- `T_base_camera` 将相机坐标变为基座坐标，平移用米；TCP 为米/弧度，Jog 距离为毫米/度。先用外参映射，不能把屏幕“向右”当基座轴。
+- RGB 为 `inverse_brown_conrady`，用 RealSense 官方 `rs2_deproject_pixel_to_point` 去畸变；不直接套普通 OpenCV Brown 模型。裁剪/缩放须同步内参，或保持原图像素坐标。
+- 桌面 `n·p+d=0`，n 朝上，`n·p+d` 是离桌高度。RGB 射线须与已知高度平面求交；分别处理顶面、侧面、盒沿和盒底，不用整体色块中心代替顶面中心。
+- 当前外参 15 组拟合、5 组独立验证，验证平移最大约 3.44 mm；桌面仍为暂定估计。TCP 对估计目标的小残差不等于实物定位精度。
 
-## 工具、抓取与放置
+## 抓放与执行边界
 
-当前工具变换为法兰坐标 `[0,0,0.248]` m、旋转零，参考系/基座变换为零。**248 mm 是用户实测的法兰至合理接触点距离**，不是从图像外观推断出的夹爪长度。末端开合轴已验证为工具 X。换装、改工具参数或改变夹持方式后重新验证这些关系。
+抓取前确认目的地及通行姿态可达，按当前图像检查整臂、夹指、物体和线缆净空；本项目没有完整碰撞模型，IK/FK 通过不证明无碰撞，MoveAbsJ 不保证笛卡尔直线。
 
-针对新任务明确以下量：物体顶面/底面高度、抓持接触点、夹指最低点、夹指闭合与释放外廓、目的地承托面及最高障碍。物体底面高度由实际夹持几何推算，不能把 TCP 高度直接当作物体底面高度。抓取位置寄存器是 0..1000 的原始单位，不等于毫米；夹爪状态 2 表示接触，不单独证明物体成功随动。
+接近时高位对齐并提前转腕，竖直下降；TCP 是接触点，物体底面和夹指最低点须按实际抓持几何推算。携物底面应高于沿途障碍并留量。放置需容纳夹指、物块及释放外廓，竖直下降、小量释放、竖直退出，狭窄盒内不自动全开。闭合接触不识别对象，释放反馈不证明放置成功。
 
-夹爪协议：读 `0x0200` 初始化状态（0 未初始化、1 完成、2 进行中）、`0x0201` 夹持状态（0 运动、1 到位无物、2 夹持、3 掉落）、`0x0202` 实测位置；写 `0x0101` 力百分比（20..100）、`0x0103` 位置（0 闭合、1000 张开）。`0x0100` 是初始化/回零入口，不自动写入。到位需同时检查状态、位置误差和连续稳定读数，不只等待状态非零。USB 在线不代表夹爪独立电源已通电。
-
-本次成功流程可复用的是方法：
-
-1. 新鲜 RGB 中确认目标区域，只拟合顶面；遮挡时移动到已检查的观察位置，不强行接受算法候选。
-2. 高位对齐，检查连续 IK/FK、构型连续性、关节余量、整臂和末端经过的空间。
-3. 垂直下降到由物体与接触点定义的抓持高度，以已授权低力合拢；通过反馈和小幅抬升/图像或现场观察确认物体随动。
-4. 在物体底面高于沿途障碍并有留量的高度搬运。为目标方向提前转向，兼顾关节限位；不要到盒口才尝试大角度转腕。
-5. 选能容纳物块、夹指、释放运动和线缆的空位，竖直下降，小量释放，再竖直退出。不要在狭窄盒内自动全开。
-6. 拍照确认物体已离开夹爪、留在目的地，再记录最终状态。日志中的命令成功不代替任务成功。
-
-本次具体的 90.23 × 29.86 × 29.61 mm 物块、50 mm 盒沿、20 mm 抓持接触高度、25 mm 释放接触高度、夹爪 412→462 等只属于 [成功案例](docs/records/2026-10-06/README.md)，不作为新任务默认值。
-
-## 规划与执行边界
-
-- 使用当前实际起点、工具/负载/参考系和本次场景生成新目录中的计划。用户手动动过机械臂、物体或盒子后，重新采集/规划；不得“恢复”已失效的旧返回路线。
-- 连续采样 IK，并经 FK 回算；检查关节限位、构型跳变和奇异点。当前控制器软限位接口返回 disabled，仍须在软件使用读取到的限位：J1 ±165°、J2 ±115°、J3 [-165°,140°]、J4 ±115°、J5 ±165°、J6 ±115°。
-- SDK 矩阵目标应先用 `utility.transArrayToPosture` 转为姿态后构造 `CartesianPosition`；`confData` 从当前 FK/连续解传播，不假定是通用二值构型。此机型不能依赖 `calcAllIkSolutions`。
-- IK 通过只证明运动学可达，不证明整臂、夹指、物体和线缆无碰撞。本仓库没有完整碰撞模型，需根据当前图像和现场信息检查实际路径空间。
-- 路线通过后，在一次执行中串联各阶段，以反馈和阶段条件决定推进；持续监测模式、电源、TCP 走廊、关节边界和预期构型。保留超时和异常停止；不要为了“谨慎”对已验证路线逐毫米重复请示。
-- 执行前核对起点，排他写入执行尝试记录。成功或结果不明的尝试均不得自动重放；失败后重新读取实际状态和原因。
-- `stop()` 是异步操作，先等待 idle 再下电。上电后再加入 MoveAbsJ 指令，避免空队列。不得自动切操作模式、清报警、回零或盲目重试。
-- 夹爪断串口不等于停止或断电；机械臂下电也不会松开夹爪。结束时分别报告机器人、夹爪和物体状态。
+运动要求 manual、idle、控制权无冲突；检查不切电源，执行按需上电，结束 stop → 等待 idle → 下电。不得自动切模式、清报警或回零。场景、工具、负载或状态变化后重新读取规划；已尝试路线不得通过改名、换 run_id 或删除尝试标记重放。软件停止不等于硬件急停，断串口不会停止夹爪，机械臂下电也不会松爪。细化限位、监测阈值及异常收尾见[工具契约](docs/工具与数据契约.md)。
 
 ## 脚本索引
 
-从项目根目录运行。SDK 脚本使用 `.venv/bin/python`；其余使用系统 `python3`。只读 SDK 查询也会连接控制器，须先确认空闲和资源无占用。
+从仓库根运行。子目录入口用 `python3 -m scripts.目录.模块`，SDK 换 `.venv/bin/python`；根目录四个入口继续用 `python3 scripts/入口.py`。脚本参数/示例见对应专题，不从历史任务推断。
 
-| 入口 | 用途与限制 |
+| 入口 | 职责 |
 | --- | --- |
-| `check_connection.py`（SDK） | 只读机器人状态、工具、限位和历史报警 |
-| `check_gripper.py` | 只读夹爪状态，不初始化 |
-| `capture.py`、`camera_settings.py` | D455 RGB 单帧采集与统一设置 |
-| `web_control.py`、`web_hardware.py` | 网页与硬件适配；启动服务不自动连接设备 |
-| `sdk_runtime.py` | SDK 加载、独占锁及进程隔离 |
-| `calibration_capture.py` | 网页配对采样；`--direct` 独占设备；`--check-image` 离线检测 |
-| `calibration_solve.py`、`table_plane.py` | 离线外参求解、已知板高度的桌面估计 |
-| `block_top.py` | 离线红色长方体顶面检测，当前尺寸 90.23×29.86×29.61 mm；新对象先适配尺寸/ROI |
-| `placement_rgb.py` | 离线双帧盒沿候选，需提供高度和 ROI，候选必须核对 |
-| `grasp_orientation_ik.py`（SDK） | 只读连续 IK/FK 检查，输入当前起点和矩阵采样路线 |
-| `orientation_joint_step.py`（SDK） | 指定新关节路线的单段执行，拒绝旧朝向路线及其复制版本 |
-| `jog_once.py`（SDK） | 单关节点动，`--execute` 加终端确认才运动；旧初始角度不是安全回位路线 |
-| `gripper_step.py` | 空载小步开合，增量最多 10 原始单位，20% 力，需 `--execute` |
-| `grasp_close.py` | 从全开 1000 以 20% 力逐步闭合至接触；不能对已夹持状态重跑 |
-
-顶面检测示例：`python3 scripts/block_top.py --image captures/example.jpg --output captures/new-top-check`。默认 ROI `[0,500,1280,220]`，可用 `--roi x y width height` 修改，保持原图像素坐标；输出目录必须不存在。通过四边、尺寸、直角、边缘支持和遮挡检查定位，失败拒绝输出中心，不回退到整体色块轮廓。
-
-已完成任务的固定坐标搬运、J1 避让、固定柱下降、朝向补正和盒内布局临时脚本已删除。实现可从提交 `87a3349` 查阅，但旧坐标和状态不构成新任务计划。
+| `scripts/run_plan.py`、`run_tool.py`、`validate_task_plan.py` | 统一计划/审核接回、单工具调用、静态校验 |
+| `scripts/web_control.py` | 常驻控制台 |
+| `scripts/runtime/`、`scripts/adapters/` | 计划组装、Schema/条件计算、工具注册及子进程适配 |
+| `scripts/hardware/check_connection.py`（SDK） | 只读机器人状态，`--output` 保存结构化结果 |
+| `scripts/hardware/joint_route.py`、`grasp_orientation_ik.py`（SDK） | 连续 IK/FK、路线检查与受限执行、防重放 |
+| `scripts/hardware/route_geometry.py` | SDK-free TCP 采样与关节路点整理 |
+| `scripts/runtime/worker_process.py` | 中断转发、等待 SDK worker 收尾，不自动重试或强杀 |
+| `scripts/hardware/check_gripper.py`、`grasp_close.py` | 夹爪读取/闭合，`--resident` 复用连接，动作需 `--execute` |
+| `scripts/hardware/sensor_client.py`、`gripper_monitor.py` | 常驻设备客户端、新鲜反馈 |
+| `scripts/hardware/sdk_runtime.py`、`web_hardware.py` | SDK 独占与原生库隔离、控制台底层操作 |
+| `scripts/vision/capture.py`、`camera_settings.py` | RGB 采集和共用曝光配置 |
+| `scripts/vision/block_top.py`、`placement_rgb.py`、`scene_batch.py` | 场景算法与同帧并行计算，接口见计划指南 |
+| `scripts/calibration/` | calibration_capture 配对采集、calibration_solve 求解、table_plane 桌面估计 |
 
 ## 文件与维护
 
-| 目录/入口 | 用途 |
-| --- | --- |
-| `scripts/` | SDK/相机/串口基础能力、视觉与规划工具、受限执行工具 |
-| `config/`、`web/` | 相机参数、服务配置、控制台 |
-| `docs/records/` | 经整理的实验总结、关键日志、照片和标定快照 |
-| `captures/`、`logs/` | 本机输出；captures 仅保留标定资料，logs 历史内容已清空，新任务重新生成 |
-| `vendor/xCoreSDK-Python/` | 固定版本的官方 SDK 子模块，二进制另行准备 |
+`config/` 保存 Schema/能力/现场配置，`web/` 为控制台；`captures/`、`logs/` 为本机输出，保留活动标定、任务照片/计划、运行记录及尝试标记。历史清理不使旧计划可重放；新任务生成新证据。关键照片、日志摘要与标定快照整理到 `docs/records/`，不批量提交逐帧日志、SDK 二进制、虚拟环境或凭据。
 
-项目测试已按用户要求删除，后续维护做语法、引用和差异检查，不为代码验证连接或移动硬件。任务结束只更新精简接手状态和实验总结，不重复堆叠过程文档。
+已完成任务的固定坐标临时脚本已删除；仅明确维护/历史追溯时可查提交 `87a3349`，不能用旧坐标或状态发起新动作。临时脚本用完删除。
 
-日志写入本机 `logs/`，默认不提交；重要运行复制到 `docs/records/<日期>/` 后提交。本次历史日志已按用户要求清空。保留标定资料和进行中任务的计划/执行记录；已完成任务的临时数据可按用户要求清理，清理记录不代表旧计划可重放。临时脚本用完删除，可通过 Git 历史追溯。SDK 二进制、虚拟环境和凭据不提交；迁移机器时单独准备。
+项目测试已按用户要求删除，维护做语法、引用、差异检查，必要时按当前任务实机验证。重要代码改动简记于维护记录；纯文档整理不另建或追加记录。当前状态按需更新本文，实机结果保留证据。用户沟通及文档时间用 Asia/Hong_Kong，日志保留原时区。

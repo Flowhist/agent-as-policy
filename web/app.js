@@ -3,6 +3,7 @@ let token = sessionStorage.getItem('robotToken') || '';
 let state = null, online = false, sending = false, imageURL = null;
 let polling = false, beating = false, loadingImage = false;
 let sessionRequest = null;
+let settingsDirty = false, settingsRevision = null;
 const icon = name => `<i data-lucide="${name}"></i>`;
 const icons = () => lucide.createIcons();
 const modeName = {manual:'手动', automatic:'自动', idle:'空闲', drag:'拖动', off:'下电', on:'上电', jog:'点动', moving:'运动中'};
@@ -86,6 +87,17 @@ function render() {
       {slider:'slider-'+j,number:'target-'+j,apply:'apply-'+j,min:'min-'+j,max:'max-'+j},'°');
   }
   $('rate').disabled=!free||drag;
+  $('force').disabled=!free||drag;
+  if(s?.settings&&!settingsDirty){
+    $('rate').value=Number((s.settings.values.robot.sdk_rate*100).toFixed(8));
+    $('force').value=s.settings.values.gripper.force_percent;
+    settingsRevision=s.settings.revision;
+  }
+  const settingsValid=['rate','force'].every(id=>$(id).value!==''&&$(id).validity.valid);
+  $('settings-save').disabled=!free||drag||!settingsDirty||!settingsValid;
+  $('settings-reload').disabled=!online||sending;
+  $('settings-status').textContent=settingsDirty?'未保存':'已保存';
+  $('force-active').textContent=s?.settings?`当前力 ${s.settings.values.gripper.force_percent}%`:'';
   $('drag-toggle').disabled=!free||!r.connected||r.mode!=='manual'||!['idle','drag'].includes(r.operation);
   $('drag-toggle').checked=drag;
   $('gripper-connect').disabled=!free||drag;
@@ -139,7 +151,18 @@ const action=(name,args={})=>command('action',{action:name,args});
 $('claim').onclick=()=>command(state?.owner?'release':'claim',{});
 $('stop').onclick=async()=>{try{await api('stop',{});await poll();}catch(error){alertMessage('停止请求未确认：'+error.message);}};
 for(const kind of ['robot','gripper'])$(kind+'-connect').onclick=()=>action((state?.[kind]?.connected?'disconnect_':'connect_')+kind);
-for(let j=1;j<=6;j++)$('apply-'+j).onclick=()=>action('joint_target',{joint:j,target_deg:drafts[j-1].value,rate:Number($('rate').value)});
+for(let j=1;j<=6;j++)$('apply-'+j).onclick=()=>action('joint_target',{joint:j,target_deg:drafts[j-1].value});
+for(const id of ['rate','force'])$(id).oninput=()=>{settingsDirty=true;render();};
+$('settings-reload').onclick=()=>{settingsDirty=false;poll();render();};
+$('settings-save').onclick=async()=>{
+  if(sending)return;
+  sending=true;render();alertMessage('');
+  try{
+    const result=await api('settings',{revision:settingsRevision,values:{robot:{sdk_rate:Number($('rate').value)/100},gripper:{force_percent:Number($('force').value)}}});
+    state.settings=result;settingsDirty=false;await poll();
+  }catch(error){alertMessage(error.message);}
+  finally{sending=false;render();}
+};
 $('grip-apply').onclick=()=>action('gripper_target',{target:Math.round(gripDraft.value*10)});
 $('drag-toggle').onchange=e=>action('drag',{enabled:e.target.checked});
 $('camera-toggle').onchange=e=>command('camera',{enabled:e.target.checked});

@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-as-policy:task-plan:2",
+  "title": "Portable task plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "revision",
+    "based_on_state",
+    "goal",
+    "stages",
+    "success",
+    "contract_version",
+    "adapter_id",
+    "capability_version"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "maxLength": 80,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+      "not": {
+        "pattern": "\\s"
+      }
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "based_on_state": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "goal": {
+      "$ref": "#/$defs/text"
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
+    },
+    "success": {
+      "$ref": "#/$defs/check_ids",
+      "minItems": 1
+    },
+    "contract_version": {
+      "const": 2
+    },
+    "adapter_id": {
+      "$ref": "#/$defs/id"
+    },
+    "capability_version": {
+      "$ref": "#/$defs/text"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "not": {
+        "pattern": "\\s"
+      }
+    },
+    "ref": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_-]*(\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+      "not": {
+        "pattern": "\\s"
+      }
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "\\S"
+    },
+    "atom": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "check_ids": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "op",
+        "value"
+      ],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/ref"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "lt",
+            "le",
+            "gt",
+            "ge",
+            "in"
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/atom"
+            },
+            {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "$ref": "#/$defs/atom"
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "lt",
+                  "le",
+                  "gt",
+                  "ge"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "in"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mode",
+        "condition",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "local",
+            "model"
+          ]
+        },
+        "condition": {},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ref"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "local"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "condition": {
+                "$ref": "#/$defs/condition"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "model"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "condition": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "skill",
+        "args",
+        "requires",
+        "expected",
+        "checks",
+        "on_fail",
+        "on_unknown"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "skill": {
+          "$ref": "#/$defs/id"
+        },
+        "args": {
+          "type": "object"
+        },
+        "args_from": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+          "additionalProperties": {"$ref": "#/$defs/ref"}
+        },
+        "requires": {
+          "$ref": "#/$defs/check_ids"
+        },
+        "expected": {
+          "$ref": "#/$defs/text"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "on_fail": {
+          "enum": [
+            "observe",
+            "replan",
+            "stop"
+          ]
+        },
+        "on_unknown": {
+          "enum": [
+            "observe",
+            "replan",
+            "stop"
+          ]
+        }
+      }
+    }
+  }
+}

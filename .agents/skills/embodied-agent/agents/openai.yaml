@@ -1,0 +1,4 @@
+interface:
+  display_name: "Embodied Agent"
+  short_description: "Plan, execute and review robot tasks"
+  default_prompt: "Use $embodied-agent to complete the requested robot task within the stated scope, inspect the evidence, and report the result."

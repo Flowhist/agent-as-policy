@@ -24,16 +24,20 @@ journalctl --user -u agent-policy-web -n 50 --no-pager
 ## 操作
 
 1. 打开网页、取得控制权，再分别连接机械臂和夹爪。一次只有一个控制浏览器；其他设备可查看和请求停止。机器人正被其他任务控制时不要连接。
-2. 用关节滑条或数值框设置绝对角度，点击“应用”才发送命令。单次变化最多 50°，同时受 SDK 限位约束；速率可选 1%～10%。执行前重新读取实际状态，只接受手动、空闲、正常电源状态，完成后停止并下电。
-3. 夹爪以 0% 闭合、100% 张开显示，单次最多变化 50%，力固定 20%。支持初始化完成且到位无物或已夹持状态，不自动回零。闭合可在接触后提前停止；张开必须到达目标。连续反馈需稳定，初始化异常、掉落、位移异常或 15 秒超时会报错。
+2. 用关节滑条或数值框设置绝对角度，点击“应用”才发送命令。单次变化最多 50°，同时受 SDK 限位约束；速率可设 1%～100%，默认取 control.yaml。执行前重新读取实际状态，只接受手动、空闲、正常电源状态，完成后停止并下电。
+3. 夹爪以 0% 闭合、100% 张开显示，单次最多变化 50%，力取 control.yaml（20%～100%，默认20%）。支持初始化完成且到位无物或已夹持状态，不自动回零。闭合可在接触后提前停止；张开必须到达目标。连续反馈需稳定，初始化异常、掉落、位移异常或 15 秒超时会报错。
 4. 拖动示教保留机械臂实体末端按钮条件，使用关节空间自由拖动。拖动期间禁止关节点动与夹爪操作；松开按钮、停稳后可记录点位。关闭拖动会停止、退出拖动并下电。
 5. 结束时释放控制权或按“停止机械臂”；前台服务用 Ctrl+C 结束。
 
 50°/50% 是软件行程上限，不代表任何新路径已验证无碰撞。夹爪百分比是位置寄存器换算，不是实测毫米开度。
 
+参数栏的速率和力度由 [control.yaml](../config/control.yaml) 读取。编辑后点击保存图标持久化；未保存的草稿不影响动作，重新读取图标放弃草稿。保存要求控制权和设备空闲，版本冲突需重新读取，不覆盖他人修改。手工修改 YAML 后页面自动刷新未编辑字段；运行中的动作及已检查路线不变。模拟页面也共享此文件，保存会影响后续实机默认值。
+
 ## 相机、标定与示教
 
-相机可单独开启，RGB 1280×720 / 10 Hz，配置来自 `config/camera_rgb.json`。预热约 3 秒，只显示最新帧，过期/异常时隐藏旧画面。OpenCV/RealSense 使用独立 spawn 进程，标定视觉处理也独立于 SDK；不要改回同进程。网页占用相机时不要同时运行 `capture.py`。
+相机可单独开启，RGB 1280×720 / 10 Hz，配置来自 `config/camera_rgb.json`。预热约 3 秒，只显示最新帧，过期/异常时隐藏旧画面。OpenCV/RealSense 使用独立 spawn 进程，标定视觉处理也独立于 SDK；不要改回同进程。网页占用相机时，脚本使用 `capture.py --resident` 读取新的无损 PNG，不运行直连采集。
+
+夹爪连接后独立轮询，机器人动作不会中断夹爪采样；夹爪命令期间由命令反馈循环更新状态，串口不并发访问。任务脚本可通过 `check_gripper.py --resident` 请求带时间戳的稳定窗口，使用 `grasp_close.py --resident --execute` 时仍须取得现有控制权。接口仅向本机开放，详见 [常驻采集](#任务脚本接入)。启动行为、浏览器控制租约、手动点动限制均保持不变。
 
 相机不会随控制权释放自动关闭，需停止预览或结束服务。预览不自动保存图片；原始标定 PNG 通过“采集标定样本”保存。保持预览、机器人连接和控制权，退出拖动停稳后采集；详见 [标定](标定.md)。配对采样复用已有连接、不抢控制权，期间拒绝其他动作。
 
@@ -48,3 +52,47 @@ journalctl --user -u agent-policy-web -n 50 --no-pager
 SDK 文件锁只约束本项目进程，不能约束示教器、旧 ROS 或其他程序。控制台没有完整碰撞检测，关节范围检查不能代替路径检查。
 
 仅需查看界面时可用不连接硬件的模拟模式：`python3 scripts/web_control.py --simulate --host 127.0.0.1 --port 8081`。页面显著标注模拟，日志写入 `logs/web-simulation/`，与实机数据分开。
+
+## 任务脚本接入
+
+任务客户端复用常驻相机与串口，网页机械臂保持断开。设备空闲时显式连接，结束时按需断开，不发送初始化或开合命令：
+
+```bash
+python3 -m scripts.hardware.sensor_client connect --camera --gripper
+python3 -m scripts.vision.capture --resident
+python3 -m scripts.hardware.check_gripper --resident --stable-samples 5 --expected-status 2
+python3 -m scripts.hardware.sensor_client disconnect --camera --gripper
+```
+
+### 新帧与稳定反馈
+
+`capture.py --resident` 保存原始 1280×720 RGB 的无损 PNG 和同名 JSON，保留内参、设备帧号、相机时钟域、UTC 接收时间与主机单调时钟。曝光继续使用 `config/camera_rgb.json`；网页的 JPEG 预览不用于此入口的精细定位。
+
+修改曝光配置后须显式重启相机预览，常驻采集不会在任务中自动重载设置。
+
+相机请求等待请求后至少 0.4 秒的新帧，排除队列旧帧；响应在服务端和客户端均要求帧龄不超过 0.5 秒。相机帧号/时间戳倒退会报错，重复帧不会被刷新成新数据。调用者须先确认机器人停稳；采集接口不连接机器人，也不替调用者判断停稳。可传 `--after` 指定本机 `time.monotonic()` 的停稳时间。
+
+夹爪轮询等待间隔为 150 ms，串口事务耗时另计。`--stable-samples 1..5` 读取不同采样序号的连续窗口，窗口跨度最多 2 秒、最新样本年龄最多 0.5 秒；多样本稳定要求初始化完成、状态一致且为到位无物或接触、位置极差不超过 2 原始单位。可指定 `--expected-status 1|2`、`--expected-position 0..1000`（误差最多 3 单位）和 `--after`；状态或位置不符时拒绝，不能把历史稳定读数当作当前夹持成功。
+
+夹爪命令开始时清空旧稳定窗口，执行中的状态来自命令自己的反馈循环，独立轮询不争用串口；状态快照在命令结束后才能成功返回。机器人运动不会阻塞夹爪监测。串口查询失败会清空样本、关闭串口并请求现有控制器停止，不自动恢复连接。
+
+### 在任务中复用
+
+`sensor_client.py` 只依赖标准库，可从 `.venv/bin/python` 的 SDK 执行进程导入。路径按项目现有脚本组织；示例中 `settled_at` 由执行器确认停稳后记录：
+
+```python
+from scripts.hardware.sensor_client import SensorClient
+
+sensors = SensorClient()
+frame = sensors.capture(after=settled_at)
+holding = sensors.gripper_snapshot(
+    stable_samples=5, expected_status=2, expected_position=contact_position)
+```
+
+读取不需要取得运动控制权。需要操作夹爪时，在任务期间使用 `with sensors.control():` 持续发送控制权心跳，并通过 `sensors.action(...)` 调用现有受限动作：`gripper_target`、`gripper_step`、`grasp_close`。目标范围、500 单位点动限制、YAML 力设置和稳定反馈检查仍由原控制器执行；`grasp_close` 使用专用的全开空夹连续闭合保护。每个请求有独立 ID，客户端只接受对应的完成/失败事件，超时或结果不明不重发。
+
+独立闭合脚本也可复用连接：`python3 -m scripts.hardware.grasp_close --resident --execute`，可追加 `--target-position`。仍要求当前为全开 1000、初始化完成且空夹；没有 `--execute` 时只读取状态。不要在已有 `sensors.control()` 上下文中另外启动这个脚本争取控制权，应直接调用同一个客户端的 `action("grasp_close", target_position=...)`。
+
+任务的 SDK 执行器须持续调用 `sensors.check_control()` 并检查夹持反馈，失去控制权或反馈异常时走自身已有停止流程；Web 服务不能保证停止另一个进程控制的机械臂。控制上下文退出后只释放控制权，相机预览和夹爪连接保留，设备释放需显式 disconnect。所有串口关闭和软件退出都不等同于夹爪硬件停止。
+
+原有不带 `--resident` 的直连入口仍可使用，但运行前必须释放 Web 持有的对应设备。网页控制台仍保留原来的浏览器操作方式。

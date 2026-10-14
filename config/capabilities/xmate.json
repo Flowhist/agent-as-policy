@@ -1,0 +1,546 @@
+{
+  "contract_version": 1,
+  "adapter_id": "xmate",
+  "version": "11",
+  "description": "xMate device tools: observation, robot state, gripper actions and checked joint routes. Scene perception and route construction belong to task code.",
+  "tools": {
+    "plan_joint_routes": {
+      "description": "In one SDK session, try ordered candidates of named sequential phases; select the first fully checked candidate and save independently executable checked routes. Future phases use predicted endpoints; execute_joint_route still checks actual start/context. No movement. Reuse returned routes instead of replanning each phase. See docs/工具与数据契约.md for batch_spec format.",
+      "preconditions": ["Web robot disconnected; robot manual and idle. Task supplies candidate path specs with identical ordered phase names, action/review boundaries, and inspected clearance."],
+      "effects": ["Solve candidate phases then densely check only IK-feasible candidates. No power or movement. Save phase routes with fine final stops and original check digests."],
+      "evidence": ["selected_candidate, routes keyed by phase name, rejected_candidates and log_path; full input and per-phase planning diagnostics in log."],
+      "implementation": "implemented",
+      "execution_mode": "read",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object", "additionalProperties": false, "required": ["batch_spec"],
+        "properties": {"batch_spec": {"type": "string", "minLength": 1}, "web_url": {"type": "string", "minLength": 1}}
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object", "additionalProperties": false,
+        "required": ["status", "selected_candidate", "routes", "rejected_candidates", "motion_sent", "log_path"],
+        "properties": {
+          "status": {"const": "checked"},
+          "selected_candidate": {"type": "string"},
+          "routes": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}},
+          "rejected_candidates": {"type": "array", "items": {"type": "object", "required": ["candidate", "phase", "error"], "additionalProperties": false, "properties": {"candidate": {"type": "string"}, "phase": {"type": "string"}, "error": {"type": "string"}}}},
+          "motion_sent": {"const": false}, "log_path": {"type": "string"}
+        }
+      }
+    },
+    "plan_joint_route": {
+      "description": "Convert task-sampled TCP matrices into a checked joint route using live start/toolset, continuous IK/FK and compaction. Path spec optionally sets blend_radius_mm: default 1 mm at intermediate points, final point always fine; 0 requests all fine stops. Inspect blending clearance. No scene perception, collision verdict or motion. Failed planning details are logged. See docs/工具与数据契约.md.",
+      "preconditions": ["Web robot disconnected; robot manual and idle, power may be on or off. Task supplies fresh endInRef target matrices, TCP bounds and optional rate (defaults to config/control.yaml); inspect full-arm/object/cable clearance."],
+      "effects": ["Exclusive SDK read/compute session; save checked route for execute_joint_route. No power or movement."],
+      "evidence": ["checked_route_path, sampled FK, segment_count and timing log. Reuses actual toolset; no fixed 248 mm assumption."],
+      "implementation": "implemented",
+      "execution_mode": "read",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object", "additionalProperties": false, "required": ["path_spec"],
+        "properties": {
+          "path_spec": {"type": "string", "minLength": 1},
+          "web_url": {"type": "string", "minLength": 1}
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object", "additionalProperties": false,
+        "required": ["status", "checked_route_path", "log_path", "motion_sent", "segment_count"],
+        "properties": {
+          "status": {"const": "checked"},
+          "checked_route_path": {"type": "string"},
+          "log_path": {"type": "string"},
+          "motion_sent": {"const": false},
+          "segment_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "check_joint_route": {
+      "description": "Check an explicit joint route against the live idle robot, SDK limits and sampled FK; save a checked route. No movement or collision verdict. See docs/工具与数据契约.md for route file format.",
+      "preconditions": [
+        "Web robot disconnected; robot manual and idle, power may be on or off.",
+        "Route file contains current start_joints_deg, 1..100 waypoints_deg, explicit tcp_bounds_m and rate 0.01..1.0; optional blend_radius_mm is 0 (default for explicit joint files) or 1..5 mm. No fixed per-segment angular range; inspect whole-arm, object and cable clearance including blending."
+      ],
+      "effects": [
+        "Connect/read/disconnect SDK under exclusive lock; save immutable-by-convention checked route and log. No commanded motion."
+      ],
+      "evidence": [
+        "Sampled joint/FK positions at <=0.1 degree intervals, 0.5 degree joint-limit margin and abs(J5)>=5 degrees. This is not a complete singularity or collision check."
+      ],
+      "implementation": "implemented",
+      "execution_mode": "read",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "route_path"
+        ],
+        "properties": {
+          "route_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "web_url": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "checked_route_path",
+          "log_path",
+          "motion_sent",
+          "segment_count"
+        ],
+        "properties": {
+          "status": {
+            "const": "checked"
+          },
+          "checked_route_path": {
+            "type": "string"
+          },
+          "log_path": {
+            "type": "string"
+          },
+          "motion_sent": {
+            "const": false
+          },
+          "segment_count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "execute_joint_route": {
+      "description": "Consume one checked joint route. Verify original record and live start/tool/load/frames/limits; reuse matching FK samples. Submit one blended queue with final fine stop. Bind holding_position to the measured grasp position for lift/carrying: five fresh samples before/after motion, contact and drift monitoring during motion, returns holding_verified. Omit after release. Stop, wait idle, power off and disconnect; no retries.",
+      "preconditions": [
+        "Same scene and inspected full-arm clearance as route check; robot manual and idle, power may be on or off; web robot disconnected.",
+        "Route must not have been attempted. Content-based marker is written before power or movement; renaming the file does not permit replay."
+      ],
+      "effects": [
+        "Robot power and physical joint motion at route rate; no automatic mode changes, gripper commands or photos. SDK worker holds device ownership and stops on feedback/lease failure."
+      ],
+      "evidence": [
+        "Controller waypoint progress, feedback timings, stable route endpoint, final TCP and power. TCP bounds alone do not cover arm, fingers, carried object or cables; no task-success verdict."
+      ],
+      "implementation": "implemented",
+      "execution_mode": "control",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checked_route_path"
+        ],
+        "properties": {
+          "checked_route_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "holding_position": {
+            "type": "integer", "minimum": 0, "maximum": 1000,
+            "description": "Bind to close_gripper.actual for lift and every carrying route. Requires fresh five-sample contact before/after motion and monitors contact/position during motion. Omit after release. Register units, not mm."
+          },
+          "web_url": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "joints_deg",
+          "tcp_m_rad",
+          "motion_sent",
+          "final_power",
+          "log_path"
+        ],
+        "properties": {
+          "status": {
+            "const": "completed"
+          },
+          "joints_deg": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+              "type": "number"
+            }
+          },
+          "tcp_m_rad": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+              "type": "number"
+            }
+          },
+          "motion_sent": {
+            "const": true
+          },
+          "holding_verified": {"const": true},
+          "gripper": {"type": "object"},
+          "final_power": {
+            "const": "PowerState.off"
+          },
+          "log_path": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "observe": {
+      "description": "Read selected resident RGB/gripper sources. Saves RGB PNG and original metadata; no motion, connection changes, initialization, localization or cross-source synchronization. Use robot_state for separate idle SDK feedback.",
+      "preconditions": [
+        "Resident web service running and selected sensors connected via sensor_client.py; no automatic connection or direct-device fallback."
+      ],
+      "effects": [
+        "No commanded motion; device connections may still affect ownership."
+      ],
+      "evidence": [
+        "rgb.image_path/metadata_path/metadata and/or raw gripper.state/samples/stable feedback. collected_at is completion time, not synchronized capture time; contact is not proof of carrying."
+      ],
+      "implementation": "implemented",
+      "execution_mode": "read",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "rgb",
+                "gripper"
+              ]
+            }
+          },
+          "web_url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Local resident HTTP origin; defaults to http://127.0.0.1:8080."
+          },
+          "after": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Host monotonic timestamp after settling; default 0. Never wall-clock time."
+          }
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "origin",
+          "collected_at"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "rgb"
+            ]
+          },
+          {
+            "required": [
+              "gripper"
+            ]
+          }
+        ],
+        "properties": {
+          "origin": {
+            "const": "live"
+          },
+          "collected_at": {
+            "type": "string"
+          },
+          "rgb": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "image_path",
+              "metadata_path",
+              "metadata"
+            ],
+            "properties": {
+              "image_path": {
+                "type": "string"
+              },
+              "metadata_path": {
+                "type": "string"
+              },
+              "metadata": {
+                "type": "object"
+              }
+            }
+          },
+          "gripper": {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "object",
+                "required": [
+                  "initialized",
+                  "status",
+                  "position",
+                  "sampled_monotonic"
+                ],
+                "properties": {
+                  "initialized": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "status": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "sampled_monotonic": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "robot_state": {
+      "description": "Query an idle robot in a separate SDK Python process via sdk_runtime. No power, mode changes or movement; disconnect after reading.",
+      "preconditions": [
+        "Robot must already be idle; SDK connection/disconnection can affect motion.",
+        "Resident web service running with its robot disconnected; SDK owner lock must be free."
+      ],
+      "effects": [
+        "No commanded motion."
+      ],
+      "evidence": [
+        "Original SDK query names in values, including posture, tools and limits; collected_at is completion time, not a synchronized sample."
+      ],
+      "implementation": "implemented",
+      "execution_mode": "read",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "web_url": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "origin",
+          "collected_at",
+          "log_path",
+          "values"
+        ],
+        "properties": {
+          "origin": {
+            "const": "live"
+          },
+          "collected_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "log_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "values": {
+            "type": "object",
+            "required": [
+              "robotInfo",
+              "powerState",
+              "operateMode",
+              "operationState",
+              "jointPos_rad",
+              "sdk_toolset"
+            ],
+            "properties": {
+              "robotInfo": {
+                "type": "object"
+              },
+              "powerState": {
+                "type": "string"
+              },
+              "operateMode": {
+                "type": "string"
+              },
+              "operationState": {
+                "type": "string"
+              },
+              "jointPos_rad": {
+                "type": "array",
+                "minItems": 6,
+                "items": {
+                  "type": "number"
+                }
+              },
+              "sdk_toolset": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "move_gripper": {
+      "description": "Send one gripper opening/closing target in raw units; existing controller limits each move to 500, uses config/control.yaml force and verifies feedback. No robot approach or release-geometry checking.",
+      "preconditions": [
+        "Resident gripper connected and initialized, at rest; robot web connection disconnected.",
+        "Caller determines support and finger clearance. A raw target is not a checked placement."
+      ],
+      "effects": [
+        "Physical gripper action with existing feedback guards; no automatic retry."
+      ],
+      "evidence": [
+        "Actual opening and controller feedback; no image, detachment proof or automatic full opening."
+      ],
+      "implementation": "implemented",
+      "execution_mode": "control",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_position"
+        ],
+        "properties": {
+          "target_position": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "web_url": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": [
+          "actual"
+        ],
+        "properties": {
+          "actual": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "holding": {
+            "type": "boolean"
+          },
+          "already_at_target": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "close_gripper": {
+      "description": "Close once from empty fully open 1000 until stable contact, using existing grasp_close guards. Does not approach, lift or prove carrying.",
+      "preconditions": [
+        "Resident gripper initialized, status 1 and position 1000; robot web connection disconnected.",
+        "Target endpoint must fit current object/scene; no contact causes failure, not a successful grasp."
+      ],
+      "effects": [
+        "Physical gripper action with existing feedback guards; no automatic retry."
+      ],
+      "evidence": [
+        "Five-sample stable contact result only; no object identity, pose or carrying verdict."
+      ],
+      "implementation": "implemented",
+      "execution_mode": "control",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_position"
+        ],
+        "properties": {
+          "target_position": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999
+          },
+          "web_url": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "target",
+          "actual",
+          "force_percent",
+          "holding"
+        ],
+        "properties": {
+          "start": {
+            "const": 1000
+          },
+          "target": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "actual": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "force_percent": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 100
+          },
+          "holding": {
+            "const": true
+          }
+        }
+      }
+    }
+  }
+}

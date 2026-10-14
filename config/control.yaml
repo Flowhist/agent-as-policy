@@ -1,0 +1,4 @@
+robot:
+  sdk_rate: 0.2
+gripper:
+  force_percent: 20

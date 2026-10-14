@@ -37,7 +37,7 @@
     <section class="controls">
       <div class="section-head"><h2>机械臂</h2><button id="robot-connect" disabled><i data-lucide="plug"></i><span>连接</span></button></div>
       <div class="device-status"><span id="robot-mode">模式 —</span><span id="robot-power">电源 —</span><span id="robot-operation">状态 —</span></div>
-      <div class="settings"><label>SDK 速率<select id="rate"><option value="0.01">1%</option><option value="0.02">2%</option><option value="0.05">5%</option><option value="0.10">10%</option></select></label><span class="muted">目标角度 °</span></div>
+      <div class="settings"><label>SDK 速率 %<input id="rate" type="number" min="1" max="100" step="any" disabled></label><label>夹爪力 %<input id="force" type="number" min="20" max="100" step="1" disabled></label><button id="settings-save" class="icon" title="保存控制参数" aria-label="保存控制参数" disabled><i data-lucide="save"></i></button><button id="settings-reload" class="icon" title="重新读取控制参数" aria-label="重新读取控制参数"><i data-lucide="rotate-ccw"></i></button><span id="settings-status" class="muted"></span></div>
       <div id="joints"></div>
       <div class="drag-row"><h2>拖动示教</h2><input id="drag-toggle" type="checkbox" role="switch" aria-label="拖动示教" disabled></div>
       <div class="section-head gripper-heading"><h2>夹爪</h2><button id="gripper-connect" disabled><i data-lucide="plug"></i><span>连接</span></button></div>
@@ -46,7 +46,7 @@
       <div class="target-caption">目标开度 %</div>
       <div class="target-controls"><input id="grip-slider" type="range" min="0" max="100" step="0.1" value="0" aria-label="夹爪目标开度滑条" disabled><input id="grip-target" type="number" min="0" max="100" step="0.1" value="0" aria-label="夹爪目标开度" disabled><button id="grip-apply" disabled>应用</button></div>
       <div class="range-label"><span id="grip-min">0%</span><span id="grip-max">100%</span></div>
-      <div class="grip-footer"><span>力设置 20%</span></div>
+      <div class="grip-footer"><span id="force-active"></span></div>
     </section>
   </main>
   <section class="event-section"><div class="section-head"><h2>操作记录</h2><span class="muted" id="last-update">—</span></div><ol id="events"></ol></section>
