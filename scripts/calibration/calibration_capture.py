@@ -218,7 +218,9 @@ def capture(folder, split):
         pipeline = rs.pipeline()
         config = rs.config()
         config.enable_device(SERIAL)
-        config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 10)
+        from scripts.vision.rgbd import enable_streams, encode_depth
+        from scripts.vision.capture import save_depth
+        enable_streams(config, rs)
         # Camera opens first so an occupied camera never causes a robot connection.
         started = False
         process = None
@@ -255,13 +257,14 @@ def capture(folder, split):
                     "Camera start failed. Close web camera preview and other camera apps, "
                     "then check the D455 USB connection. Original error: " + str(exc)) from exc
             started = True
+            align = rs.align(rs.stream.color)
             from scripts.vision.camera_settings import apply_rgb_settings
             apply_rgb_settings(profile, rs)
             progress("Warming up camera for 30 frames")
             for _ in range(30):
                 pipeline.wait_for_frames(2000)
             intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
-            camera = {"serial": SERIAL, "width": intr.width, "height": intr.height, "fps": 10,
+            camera = {"serial": SERIAL, "width": intr.width, "height": intr.height, "fps": 15,
                       "fx": intr.fx, "fy": intr.fy, "ppx": intr.ppx, "ppy": intr.ppy,
                       "distortion_model": str(intr.model), "coefficients": list(intr.coeffs),
                       "note": "Raw RGB; do not treat inverse_brown_conrady as OpenCV Brown distortion"}
@@ -288,6 +291,7 @@ def capture(folder, split):
             if not frame:
                 raise RuntimeError("No RGB frame")
             image = np.asanyarray(frame.get_data()).copy()
+            depth = encode_depth(frames, align)
             frame_meta = {"timestamp_ms": frame.get_timestamp(), "clock_domain": str(frame.get_frame_timestamp_domain()),
                           "frame_number": frame.get_frame_number(), "host_capture_start_utc": capture_start,
                           "host_received_utc": utc()}
@@ -301,13 +305,14 @@ def capture(folder, split):
             progress("Robot disconnected; detecting board corners")
             detection, annotated = detect(image)
             image_name, overlay_name = stamp + ".png", stamp + "-corners.png"
+            save_depth(folder / image_name, depth)
             for name, pixels in [(image_name, image), (overlay_name, annotated)]:
                 if not cv2.imwrite(str(folder / name), pixels):
                     raise RuntimeError(f"Cannot save {name}")
             train_count = sum(s["split"] == "train" for s in dataset["samples"])
             sample_split = split if split != "auto" else ("train" if train_count < 20 else "validation")
             sample = {"id": stamp, "split": sample_split, "saved_utc": utc(), "image": image_name,
-                      "overlay": overlay_name, "frame": frame_meta, "robot": robot_info,
+                      "overlay": overlay_name, "frame": frame_meta, "depth": depth, "robot": robot_info,
                       "robot_readings": readings, "stability": quality, "detection": detection}
             dataset["camera"] = camera
             dataset["samples"].append(sample)

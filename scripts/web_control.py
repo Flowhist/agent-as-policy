@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import yaml
 from urllib.parse import urlsplit
 
 if __package__ in (None, ''):
@@ -101,12 +102,14 @@ def capture_worker(frames, stop):
         pipeline = rs.pipeline()
         config = rs.config()
         config.enable_device("141322252639")
-        config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 10)
+        from scripts.vision.rgbd import enable_streams, encode_depth
+        enable_streams(config, rs)
         profile = pipeline.start(config)
         started = True
+        align = rs.align(rs.stream.color)
         intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
         camera_info = {"serial": "141322252639", "width": intr.width, "height": intr.height,
-                       "fps": 10, "fx": intr.fx, "fy": intr.fy, "ppx": intr.ppx, "ppy": intr.ppy,
+                       "fps": 15, "fx": intr.fx, "fy": intr.fy, "ppx": intr.ppx, "ppy": intr.ppy,
                        "distortion_model": str(intr.model), "coefficients": list(intr.coeffs),
                        "note": "Raw RGB; do not treat inverse_brown_conrady as OpenCV Brown distortion"}
         from scripts.vision.camera_settings import apply_rgb_settings
@@ -136,6 +139,7 @@ def capture_worker(frames, stop):
                 if not png_ok:
                     raise RuntimeError("PNG encoding failed")
                 packet = {"png_base64": base64.b64encode(png.tobytes()).decode(),
+                          "depth": encode_depth(result, align),
                           "received_monotonic": received, "camera": camera_info,
                           "frame": {"timestamp_ms": frame.get_timestamp(),
                                     "clock_domain": str(frame.get_frame_timestamp_domain()),
@@ -202,8 +206,9 @@ class Camera:
                     image, timestamp, error = item[:3]
                     if error:
                         raise RuntimeError(error)
-                    self.frame, self.updated = image, timestamp
-                    self.packet = item[3] if len(item) > 3 else None
+                    with self.lock:
+                        self.frame, self.updated = image, timestamp
+                        self.packet = item[3] if len(item) > 3 else None
                 except queue.Empty:
                     if not process.is_alive():
                         raise RuntimeError(f"Camera process exited ({process.exitcode}); robot process retained")
@@ -538,9 +543,13 @@ class Controller:
                     self.emit("shutdown_disconnect_failed", message=str(exc))
 
     def state(self, token):
+        try:
+            settings, settings_error = read_settings(), None
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            settings, settings_error = None, str(exc)
         with self.lock:
             return {"simulation": self.simulate, "robot": self.robot, "gripper": self.gripper,
-                    "settings": read_settings(),
+                    "settings": settings, "settings_error": settings_error,
                     "owner": self.owner == token, "occupied": self.owner is not None,
                     "busy": self.busy, "stopping": self.stopping.is_set(),
                     "updated": self.updated, "error": self.error,
@@ -559,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def respond(self, code, payload, content_type="application/json; charset=utf-8"):
+    def respond(self, code, payload, content_type="application/json; charset=utf-8", headers=None):
         body = json.dumps(payload, ensure_ascii=False).encode() if isinstance(payload, (dict, list)) else payload
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -567,6 +576,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        for name, value in (headers or {}).items():
+            self.send_header(name, str(value))
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -599,9 +610,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200, result)
             if path == "/api/camera.jpg":
                 camera = self.server.camera
-                if not camera.enabled or not camera.frame or time.time() - camera.updated > 2:
+                with camera.lock:
+                    enabled, frame, updated = camera.enabled, camera.frame, camera.updated
+                age = time.time() - updated
+                if not enabled or not frame or not 0 <= age < 2:
                     return self.respond(503, {"error": camera.error or "Camera warming up or offline"})
-                return self.respond(200, camera.frame, "image/jpeg")
+                return self.respond(200, frame, "image/jpeg", headers={
+                    "X-Frame-Id": repr(updated), "X-Frame-Age": age})
             if path == "/api/points":
                 with self.server.control.lock:
                     return self.respond(200, list(self.server.control.points))

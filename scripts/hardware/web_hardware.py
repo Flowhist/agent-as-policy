@@ -19,6 +19,50 @@ def jog_timeout(delta, rate):
     return 10 + 4 * abs(delta) * (0.01 / rate)
 
 
+def joint_commands(sdk, targets_deg, rate, zones):
+    """Build native MoveAbsJ commands for both web targets and checked routes."""
+    validate_rate(rate)
+    descriptor = getattr(sdk.MoveAbsJCommand, 'jointSpeed', None)
+    if not hasattr(descriptor, '__set__'):
+        raise RuntimeError('Installed SDK lacks native MoveAbsJCommand.jointSpeed')
+    if len(targets_deg) != len(zones):
+        raise ValueError('Each joint target needs a zone')
+    commands = []
+    for target, zone in zip(targets_deg, zones):
+        command = sdk.MoveAbsJCommand(list(map(math.radians, target)), -1, zone)
+        if not math.isfinite(command.zone) or not math.isclose(command.zone, zone, abs_tol=1e-9):
+            raise RuntimeError('SDK blending radius readback differs from requested radius')
+        command.jointSpeed = rate
+        if not math.isfinite(command.jointSpeed) or not math.isclose(
+                command.jointSpeed, rate, rel_tol=0, abs_tol=1e-9):
+            raise RuntimeError('SDK joint speed readback differs from requested rate')
+        commands.append(command)
+    return commands
+
+
+def joint_progress(robot, sdk, command_id):
+    """Ignore stale queue events; reject controller errors on the current queue."""
+    info = sdk_call(robot.queryEventInfo, sdk.Event.moveExecution)
+    keys = sdk.EventInfoKey.MoveExecution
+    if info.get(keys.ID) != command_id.content():
+        return None
+    error = info[keys.Error]
+    if isinstance(error, sdk.PyErrorCode):
+        code = error.value()
+    elif type(error) is int:
+        code = error
+    elif isinstance(error, dict) and type(error.get('ec')) is int:
+        code = error['ec']
+    else:
+        raise RuntimeError('Unsupported controller event error representation')
+    if code != 0:
+        raise RuntimeError(f'Controller motion error: {code}')
+    index = info[keys.WaypointIndex]
+    if type(index) is not int:
+        raise RuntimeError('Invalid controller waypoint index')
+    return index, info.get(keys.ReachTarget) is True
+
+
 class Hardware:
     def __init__(self):
         self.robot = None
@@ -83,6 +127,8 @@ class Hardware:
 
     def jog(self, joint, delta, rate, check, target_deg=None):
         validate_rate(rate)
+        if type(joint) is not int or joint not in range(1, 7):
+            raise ValueError('Joint must be 1..6')
         start = self.ready()["joints_deg"]
         if target_deg is not None:
             delta = target_deg - start[joint - 1]
@@ -100,15 +146,27 @@ class Hardware:
             raise RuntimeError("Target outside reported joint bounds")
         try:
             check()
+            commands = joint_commands(self.sdk, [target], rate, [0.])
+            sdk_call(self.robot.setMotionControlMode, self.sdk.MotionControlMode.NrtCommandMode)
+            sdk_call(self.robot.moveReset)
+            sdk_call(self.robot.adjustSpeedOnline, 1.0)
             sdk_call(self.robot.setPowerState, True)
             if sdk_call(self.robot.powerState) != self.sdk.PowerState.on:
                 raise RuntimeError("Power on not confirmed")
             check()
-            sdk_call(self.robot.startJog, self.sdk.JogOptSpace.jointSpace,
-                     rate, abs(delta), joint - 1, delta > 0)
+            current = self.ready()["joints_deg"]
+            if max(abs(a - b) for a, b in zip(current, start)) > 0.03:
+                raise RuntimeError('Joint start changed before submission')
+            command_id = self.sdk.PyString()
+            sdk_call(self.robot.moveAppend, commands, command_id)
+            check()
+            sdk_call(self.robot.moveStart)
             deadline = time.monotonic() + jog_timeout(delta, rate)
             while True:
                 check()
+                progress = joint_progress(self.robot, self.sdk, command_id)
+                if progress is not None and progress[0] != 0:
+                    raise RuntimeError('Invalid controller waypoint index')
                 state = self.robot_state()
                 actual = state["joints_deg"]
                 if state["power"] != "on" or state["mode"] != "manual":
@@ -116,7 +174,8 @@ class Hardware:
                 if any(not min(s, t) - 0.05 <= a <= max(s, t) + 0.05
                        for a, s, t in zip(actual, start, target)):
                     raise RuntimeError("Unexpected displacement")
-                if max(abs(a - t) for a, t in zip(actual, target)) <= 0.005:
+                if (progress == (0, True) and state["operation"] == "idle"
+                        and max(abs(a - t) for a, t in zip(actual, target)) <= 0.005):
                     break
                 if time.monotonic() > deadline:
                     raise RuntimeError("Jog timed out; no retry")
@@ -132,9 +191,11 @@ class Hardware:
                 samples.append(actual)
             if any(max(axis) - min(axis) > 0.002 for axis in zip(*samples)):
                 raise RuntimeError("Position not stable after stop")
-            return {"start_deg": start, "actual_deg": actual}
+            return {"start_deg": start, "actual_deg": actual,
+                    "motion_interface": "MoveAbsJ", "joint_rate": rate, "online_scale": 1.0}
         finally:
             self.safe_stop()
+            sdk_call(self.robot.moveReset)
 
     def drag(self, enabled):
         if not self.robot:
@@ -166,7 +227,6 @@ class Hardware:
             dragging = True
         if dragging:
             actions.append((self.robot.disableDrag, ()))
-        actions.append((self.robot.setPowerState, (False,)))
         for method, args in actions:
             try:
                 sdk_call(method, *args)
@@ -174,9 +234,22 @@ class Hardware:
                 errors.append(str(exc))
         self.drag_requested = False
         try:
+            deadline = time.monotonic() + 5
+            while sdk_call(self.robot.operationState) != self.sdk.OperationState.idle:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Stop did not reach idle; inspect controller')
+                time.sleep(0.05)
+        except Exception as exc:
+            errors.append(str(exc))
+        # Still attempt power-off if stopping or feedback failed; never report it as confirmed.
+        try:
+            sdk_call(self.robot.setPowerState, False)
+        except Exception as exc:
+            errors.append(str(exc))
+        try:
             state = self.robot_state()
-            if state["power"] != "off" or state["operation"] == "drag":
-                errors.append("Power off / drag exit not confirmed")
+            if state["power"] != "off" or state["operation"] != "idle":
+                errors.append("Power off / idle not confirmed")
         except Exception as exc:
             errors.append(str(exc))
         if errors:

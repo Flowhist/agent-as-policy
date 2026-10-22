@@ -17,6 +17,7 @@ from scripts.hardware.sdk_runtime import sdk_runtime
 from scripts.hardware.control_settings import load_settings, validate_rate
 from scripts.hardware.sensor_client import SensorClient
 from scripts.hardware.web_hardware import sdk_call as call
+from scripts.hardware.web_hardware import joint_commands, joint_progress
 from scripts.hardware.route_geometry import compact_joints
 from scripts.hardware.grasp_orientation_ik import check_sampled_paths
 
@@ -341,23 +342,8 @@ def execute(robot, sdk, route, segments, limits, check_control, emit):
     armed = False
     try:
         check_control()
-        # Require the SDK descriptor: an instance-only Python attribute would
-        # appear to accept a rate without changing the native motion command.
-        descriptor = getattr(sdk.MoveAbsJCommand, 'jointSpeed', None)
-        if not hasattr(descriptor, '__set__'):
-            raise RuntimeError('Installed SDK lacks native MoveAbsJCommand.jointSpeed')
-        commands = []
         zones = [blend_radius(route)] * (len(route['waypoints_deg'])-1) + [0.]
-        for target, zone in zip(route['waypoints_deg'], zones):
-            command = sdk.MoveAbsJCommand(list(map(math.radians, target)), -1, zone)
-            if not math.isfinite(command.zone) or not math.isclose(command.zone, zone, abs_tol=1e-9):
-                raise RuntimeError('SDK blending radius readback differs from requested radius')
-            command.jointSpeed = route['rate']
-            actual_rate = command.jointSpeed
-            if (not math.isfinite(actual_rate)
-                    or not math.isclose(actual_rate, route['rate'], rel_tol=0, abs_tol=1e-9)):
-                raise RuntimeError('SDK joint speed readback differs from requested rate')
-            commands.append(command)
+        commands = joint_commands(sdk, route['waypoints_deg'], route['rate'], zones)
         check_control()
         call(robot.setMotionControlMode, sdk.MotionControlMode.NrtCommandMode)
         call(robot.moveReset)
@@ -381,28 +367,15 @@ def execute(robot, sdk, route, segments, limits, check_control, emit):
         call(robot.moveAppend, commands, command_id)
         emit('queue_start', command_id=command_id.content(), segment_count=len(commands))
         call(robot.moveStart)
-        keys = sdk.EventInfoKey.MoveExecution
         index, deadline = 0, time.monotonic()+90
         while True:
             check_control()
             tick = time.monotonic()
-            info = call(robot.queryEventInfo, sdk.Event.moveExecution)
-            matched = info.get(keys.ID) == command_id.content()
-            if matched:
-                current = info[keys.WaypointIndex]
-                if type(current) is not int or not index <= current < len(segments):
+            progress = joint_progress(robot, sdk, command_id)
+            if progress is not None:
+                current, reached = progress
+                if not index <= current < len(segments):
                     raise RuntimeError('Invalid or regressing controller waypoint index')
-                error = info[keys.Error]
-                if isinstance(error, sdk.PyErrorCode):
-                    error_code = error.value()
-                elif type(error) is int:
-                    error_code = error
-                elif isinstance(error, dict) and type(error.get('ec')) is int:
-                    error_code = error['ec']
-                else:
-                    raise RuntimeError('Unsupported controller event error representation')
-                if error_code != 0:
-                    raise RuntimeError(f'Controller motion error: {error_code}')
                 if current != index:
                     index, deadline = current, time.monotonic()+90
                     emit('segment_progress', segment=index)
@@ -430,7 +403,7 @@ def execute(robot, sdk, route, segments, limits, check_control, emit):
                 raise RuntimeError('Mode or power changed')
             emit('feedback', segment=index, joints_deg=q, tcp_m_rad=pose,
                  poll_elapsed_s=time.monotonic()-tick)
-            if (matched and index == len(segments)-1 and info.get(keys.ReachTarget) is True
+            if (progress is not None and index == len(segments)-1 and reached
                     and max(abs(a-b) for a,b in zip(q,route['waypoints_deg'][-1])) < .01
                     and call(robot.operationState) == sdk.OperationState.idle):
                 break

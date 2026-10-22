@@ -1,90 +1,100 @@
 ---
 name: embodied-agent
-description: Plan, execute, or review a robot task using this repository's device tools.
+description: Execute or review robot tasks using the existing guarded device tools.
 ---
 
 # Embodied Agent
 
-Work within the requested scope and existing authorization. For planning/review,
-return that result; for execution, continue until the physical outcome is evidenced
-or a concrete blocker requires user input. User corrections supersede old plans.
+Start here; README, schemas and references are on demand, not prerequisite reading.
+Complete physical tasks use plan.json and run_plan for sequencing/checks/stops.
+Direct tools are for initial observations, read-only queries and explicit debugging.
+Follow the user's current scope; generating a plan is not executing it.
 
-## Read Once
+## Start
 
-Use [README](../../../README.md) for current status, known dimensions, calibration
-and entry points. For plan construction, scene helpers or review commands, read the
-relevant section of the [plan guide](references/plan-format.md). Consult the
-[tool contract](../../../docs/工具与数据契约.md) only for device-specific boundaries.
-Discover adapter schemas once with `python3 scripts/validate_task_plan.py --adapter "$ADAPTER" --list-tools`; reuse them and instructions already in context. During normal
-execution, do not search Git, implementation files, vendor examples or old runs to
-rediscover interfaces, or edit shared control code. Debugging/maintenance is a
-separate explicit task; task-specific geometry code is allowed.
+From the repository root, check ownership: `python3 -m scripts.hardware.sensor_client status`.
+Do not acquire devices while busy/owned; web robot must be disconnected for task SDK use.
+Connect only missing sensors when idle: `python3 -m scripts.hardware.sensor_client connect --camera --gripper`
+(use only missing flags, not automatic fault recovery). Service status is not live SDK state.
 
-Read [control.yaml](../../../config/control.yaml) once for each new task: use its
-SDK rate by default (omit rate in path helpers/specs) and gripper force. Do not
-hardcode historical 10%/20%, silently raise defaults, or rewrite a checked route.
-Explicit task rate overrides require current user intent; YAML edits affect new
-plans and subsequent gripper actions, not already checked trajectories.
+Invoke a tool with JSON on stdin, or `--args path/to/args.json`:
+```bash
+python3 scripts/run_tool.py observe --adapter xmate <<'JSON'
+{"sources":["rgb","gripper"]}
+JSON
+```
 
-## Observe and Plan
+| Tool | Arguments / role |
+| --- | --- |
+| observe | sources: rgb/gripper; fresh evidence from connected resident sensors |
+| robot_state | {}; query idle robot in isolated SDK process |
+| move_gripper | target_position: 0..1000; at most 500 change |
+| close_gripper | target_position: 0..999; initialized, fully open empty start at 1000 |
+| plan_joint_routes | batch_spec: path; check known motion phases together |
+| plan_joint_route | path_spec: path; check one sampled TCP path |
+| check_joint_route | route_path: path; check explicit joint route |
+| execute_joint_route | checked_route_path: returned path; optional holding_position |
 
-- Full physical tasks use one task directory and one `plan.json` covering the known
-  remaining goal through final acceptance, advanced by `scripts/run_plan.py`.
-  Initial observations/geometry may precede it; do not manually dispatch its
-  actions. Read-only requests and explicit single-tool debugging need no plan.
-- Read service ownership with `python3 -m scripts.hardware.sensor_client status`;
-  query the SDK only while the device is idle and ownership permits it. Reuse
-  resident sensors, never guess HTTP routes or start duplicate owners. Keep SDK
-  and OpenCV/RealSense in separate processes and preserve all tool guards.
-- Reuse known dimensions for the same objects, but acquire current poses and state.
-  Inspect target, destination, occupancy, orientation and clearance in one frame.
-  Refresh for changed/stale/ambiguous evidence, occlusion or action verification,
-  not for a stage change or newly supplied dimensions alone.
-- In one system-Python task process, share calibration and use
-  `scene_batch.analyze_frame` for independent image jobs, then combine dependent
-  geometry/overlays and assemble the plan with `PlanBuilder`. Inspect each evidence
-  bundle once for all pending questions; local parallelism does not batch model calls.
-- Preflight known motion phases with `plan_joint_routes`; bind its named outputs
-  through `args_from` without replanning each phase. Use few scene-valid candidates:
-  `first_valid` for known preference, `min_joint_travel` for IK travel comparison.
-  Cost is not time or collision assurance. Preserve key poses with
-  `path_spec_from_poses`; choose clearance and a nearby useful retreat from the
-  scene, not a routine return to the grasp point. Coarser IK does not relax FK checks.
+If arguments/results are unfamiliar, inspect only that tool:
+`python3 scripts/validate_task_plan.py --adapter xmate --tool TOOL`.
+Use actual returned paths/values, not invented results. New routes/gripper actions use
+config/control.yaml defaults; explicit rate overrides require current user intent.
 
-## Execute and Review
+## Plan and Run
 
-Use repository-root module commands from README: SDK via `.venv/bin/python`,
-vision/serial via system `python3`. Check routes before motion. A changed
-scene/state/tool/load requires reassessment; executed or outcome-unknown routes
-must not be replayed, including after renaming or a new run ID.
+For short plans, run Python in the terminal without saving build.py. This only writes
+and validates JSON; execute separately. Direct schema-v2 JSON is also accepted.
+Minimal final-review example, not a complete manipulation plan:
 
-For known-object pickup, bind every lift/carrying route's `holding_position` to
-this run's `close_gripper.actual` and require local `holding_verified=true`.
-The tool verifies fresh stable contact before/after and monitors during motion;
-omit the binding after release. Use intermediate images when identity, grasp
-geometry, slip or scene change is uncertain. Contact does not identify the object;
-retain final placement verification using a new image, never the initial frame.
+```bash
+python3 - <<'PY'
+from uuid import uuid4
+from scripts.runtime.plan_builder import PlanBuilder, local, model
+p = PlanBuilder(adapter="xmate", run_id="task-" + uuid4().hex,
+                goal="Verify the requested final placement")
+p.add("final", "observe", {"sources": ["rgb", "gripper"]},
+      expected="Fresh placement evidence",
+      checks=[model("final_ok", "The intended object is at the requested destination",
+                    ["final.rgb", "final.gripper"])])
+print(p.write("captures/task-" + p.plan["run_id"] + "/plan.json", success=["final_ok"]))
+PY
+```
 
-At `needs_review`, inspect evidence immediately and submit the guide's resume
-command; a conversational verdict does not advance the run. Pass continues prepared
-stages; fail/unknown stops and returns control to reassess. Only a clean pending
-review can resume. On `tool_error`, stop dependent actions, inspect the error and
-relevant state, and reobserve/replan unexecuted work under a new run ID/revision.
-Preserve old logs/attempts; do not bypass failed guards or repair shared SDK code
-inside a physical task. Report framework defects as blockers.
+Replace/extend stages for the current goal. `local(id, "stage.field", value, op="eq")`
+checks results; `model(id, condition, evidence)` hands judgment to this agent.
+`add` defaults to requiring the previous stage's checks and stopping on fail/unknown;
+use `requires=[check_id, ...]` for other dependencies and
+`args_from={"argument": "earlier_stage.field"}` for live result bindings.
+`success` names final-stage checks. Save generator scripts only for complex debugging/reuse.
 
-## Timing and Delivery
+Run the returned path: `python3 scripts/run_plan.py PLAN_PATH --adapter xmate`.
+Add `--requested-at ISO_TIMESTAMP_WITH_TIMEZONE` only with the actual request time.
+At `needs_review`, inspect the supplied evidence, then resume with:
+`python3 scripts/run_plan.py --adapter xmate --resume RUN_LOG --review-id EXACT_PENDING_ID --verdict CHECK_ID=pass --reason 'Evidence-based judgment'`.
+Repeat `--verdict` for every requested check; use fail/unknown when appropriate.
+A chat judgment alone does not resume the plan. Do not interleave manual actions.
 
-Target request-to-acceptance within 300 seconds for current pick/place, without
-skipping protection/evidence, increasing speed or killing a worker. Pass the actual
-request timestamp via `--requested-at`; the guide explains the overlapping timing
-fields. Wait on the existing worker for 30-60 seconds when appropriate; do not
-interleave empty polls, log tails and directory scans. Inspect a run log for an
-error, unexpected delay or user question, not routine stage progress.
+## Decide From Evidence
 
-Keep execution quiet: report blockers, answer interruptions and give the final
-outcome; use only minimal factual updates if the host requires them. On completed,
-report immediately from the saved summary: outcome, separate robot/gripper/object
-states, evidence paths, material unknowns and total elapsed time (main delay if
-above target). Do not delay for README edits or task-script cleanup, or write
-reports while waiting for motion/user input. Durable facts can be maintained later.
+- Inspect target, destination and obstacles in one frame; reuse it until change or
+  uncertainty requires observation. Known dimensions may be reused, not old poses.
+- Confirm destination reachability and arm/finger/object/cable clearance before grasping.
+  IK/FK is not collision proof; MoveAbsJ is not Cartesian-linear. Account for carried
+  extents, rotate above obstacles, use suitable descent/exit and confined-space release.
+- Check every route before execution. On each lift/carry pass this grasp's actual
+  closing position as holding_position and require holding_verified=true; omit after
+  release. Contact does not identify an object. Final placement requires a new image.
+- Errors/unknown outcomes stop, not retry. Reobserve and plan only remaining work
+  with a new run_id; never restart the old plan. Direct debug calls lack plan checks.
+  Preserve SDK locks, process isolation, manual/idle guards and feedback. Never replay
+  attempted routes, even renamed; reassess state/tool/load/scene changes. No automatic
+  mode change, alarm clearing or homing. Serial close is not gripper stop; power-off
+  does not release an object; software stop is not emergency stop.
+
+For advanced fields see [plan reference](references/plan-format.md#plan-assembly).
+[Geometry APIs](references/plan-format.md#one-process-vision),
+[device details](../../../docs/工具与数据契约.md) and [installation facts](../../../README.md#当前设备与物件参数)
+are references only when needed; this entry adds no new perception or motion capability.
+
+Keep execution quiet, wait on existing workers, then report actual outcome, separate
+robot/gripper/object states, evidence and elapsed time. Do not delay for maintenance.

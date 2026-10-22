@@ -1,84 +1,68 @@
-# Plan Format
+# Plans and Geometry
 
-Use this reference for task construction and review; workflow decisions are in
-[SKILL.md](../SKILL.md), device limits in the [tool contract](../../../../docs/工具与数据契约.md).
-[Schema v2](../../../../config/task-plan.schema.json) requires contract_version,
-adapter_id/capability_version, run_id, revision, based_on_state, goal, stages and
-success. IDs are bookkeeping, not measurements. No separate task/state files or
-plan-acceptance workflow are required.
-
-## Entry Points
-
-Run from the repository root with system Python; tools isolate SDK workers:
-
-```bash
-python3 scripts/validate_task_plan.py --adapter xmate --list-tools
-python3 scripts/validate_task_plan.py path/to/plan.json --adapter xmate
-python3 -m scripts.hardware.sensor_client status
-# Only connect missing sensors when idle and ownership permits:
-python3 -m scripts.hardware.sensor_client connect --camera --gripper
-python3 scripts/run_tool.py TOOL --adapter xmate --args args.json
-```
-
-Validation checks structure, registered tools, arguments and dependencies without
-hardware access; xMate also rejects repeated checked-route paths/references.
-It does not check freshness, collision safety or goal coverage.
-`run_tool.py` accepts stdin JSON if --args is omitted, returns
-`{adapter_id, tool, result}`, and errors to stderr/nonzero without retry.
-`observe` takes `{"sources":["rgb","gripper"]}`; `robot_state` takes `{}`.
-Observe saves image/metadata and feedback, not localization or a task verdict.
-Resident service/sensors must already be connected; no automatic direct fallback.
+Start in [SKILL.md](../SKILL.md), which includes terminal PlanBuilder generation
+and execution. Read this reference only for detailed fields, review recovery or a
+specific geometry helper. No separate build.py or mandatory reference-reading step.
 
 ## Plan Assembly
 
-Use `PlanBuilder` in the same SDK-free process as scene geometry. It fills versions
-from the installed adapter and validates before writing; it invokes no tools.
-The following is a construction skeleton, not a complete pick/place plan:
+Complete physical tasks use a plan for sequencing, checks and stops; direct tools
+are for initial observation, read-only queries and explicit debugging. Short plans
+normally use terminal PlanBuilder; direct JSON below is an equally valid format.
+The runner validates JSON before invoking tools; separate validation is optional:
 
-```python
-from scripts.runtime.plan_builder import PlanBuilder, local, model
-
-p = PlanBuilder(adapter="xmate", run_id="NEW_UNIQUE_RUN", goal=task_goal)
-p.add("preflight", "plan_joint_routes", {"batch_spec": str(batch_path)},
-      checks=[local("preflight_ok", "preflight.status", "checked")],
-      expected="All remaining motion phases checked")
-p.add("approach", "execute_joint_route",
-      args_from={"checked_route_path": "preflight.routes.approach"},
-      checks=[local("approach_ok", "approach.status", "completed")],
-      expected="Reach the scene-derived grasp pose")
-# Insert task-specific opening, closing, guarded carrying, release and retreat.
-# Final observation must follow release and a checked retreat:
-p.add("final", "observe", {"sources": ["rgb", "gripper"]},
-      checks=[model("final_ok", acceptance_condition, ["final.rgb", "final.gripper"])],
-      expected=acceptance_condition)
-p.write(task_dir / "plan.json", success=["final_ok"])
+```bash
+python3 scripts/run_plan.py path/to/plan.json --adapter xmate --requested-at ISO_TIMESTAMP_WITH_TIMEZONE
+python3 scripts/validate_task_plan.py path/to/plan.json --adapter xmate
 ```
 
-`add` defaults requires to all preceding-stage checks; override with `requires=[...]`.
-`on_fail`/`on_unknown` default to stop. Helpers are
-`local(id, ref, value, op="eq")` and `model(id, condition, evidence)`.
-`build(success=[...])` returns the validated dictionary without writing.
-Pass revision/based_on_state at construction when needed.
+Example format only: a single final-image review, not a complete physical task.
+Use a new run_id and the installed capability_version from a tool contract.
+Do not replay a historical plan.
 
-Insert carrying stages after this task's `close_gripper` stage named `close`,
-and before release/retreat/final:
-
-```python
-for name in ("lift", "transfer"):
-    p.add(name, "execute_joint_route",
-          args_from={"checked_route_path": "preflight.routes." + name,
-                     "holding_position": "close.actual"},
-          checks=[local(name + "_ok", name + ".status", "completed"),
-                  local(name + "_held", name + ".holding_verified", True)],
-          expected="Complete checked motion with stable contact")
+```json
+{
+  "contract_version": 2, "adapter_id": "xmate", "capability_version": "11",
+  "run_id": "NEW_UNIQUE_RUN", "revision": 1, "based_on_state": 0,
+  "goal": "Verify the requested final placement",
+  "stages": [{
+    "id": "final", "skill": "observe", "args": {"sources": ["rgb", "gripper"]},
+    "requires": [], "expected": "Fresh evidence of the requested placement",
+    "checks": [{
+      "id": "final_ok", "mode": "model",
+      "condition": "The intended object is visibly placed at the requested destination",
+      "evidence": ["final.rgb", "final.gripper"]
+    }],
+    "on_fail": "stop", "on_unknown": "stop"
+  }],
+  "success": ["final_ok"]
+}
 ```
 
-Bind the fresh closing register value on **every** carrying route; omit it after
-release. The tool checks five fresh samples before/after and monitors during motion.
-Do not substitute an old contact value or millimetres. Exact thresholds and
-failure semantics: [carrying feedback](../../../../docs/工具与数据契约.md#携物反馈).
-Identity/geometry ambiguity may require an intermediate image; final placement
-always needs new visual evidence.
+For a carrying stage after preflight and closing, bind results rather than copying
+historical values; its prerequisite check IDs must exist in preceding stages:
+
+```json
+{
+  "id": "lift", "skill": "execute_joint_route", "args": {},
+  "args_from": {
+    "checked_route_path": "preflight.routes.lift",
+    "holding_position": "close.actual"
+  },
+  "requires": ["preflight_ok", "close_ok"],
+  "expected": "Complete checked lift with stable contact",
+  "checks": [
+    {"id": "lift_ok", "mode": "local", "condition": {"ref": "lift.status", "op": "eq", "value": "completed"}, "evidence": ["lift.status"]},
+    {"id": "lift_held", "mode": "local", "condition": {"ref": "lift.holding_verified", "op": "eq", "value": true}, "evidence": ["lift.holding_verified"]}
+  ],
+  "on_fail": "stop", "on_unknown": "stop"
+}
+```
+
+Apply holding_position to every lift/carry route, omit after release. Stable contact
+does not prove identity or placement; final acceptance still needs new visual evidence.
+Schema IDs organize execution, not physical measurements. Repeated checked routes
+are rejected. No extra task/state files or plan-acceptance workflow are required.
 
 ## Batch Paths
 

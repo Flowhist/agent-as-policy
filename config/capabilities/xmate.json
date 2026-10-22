@@ -67,7 +67,7 @@
         "Connect/read/disconnect SDK under exclusive lock; save immutable-by-convention checked route and log. No commanded motion."
       ],
       "evidence": [
-        "Sampled joint/FK positions at <=0.1 degree intervals, 0.5 degree joint-limit margin and abs(J5)>=5 degrees. This is not a complete singularity or collision check."
+        "Sampled joint/FK positions at <=1 degree intervals, 0.5 degree joint-limit margin and abs(J5)>=5 degrees. This is not a complete singularity or collision check."
       ],
       "implementation": "implemented",
       "execution_mode": "read",
@@ -286,6 +286,9 @@
                 "type": "string"
               },
               "metadata_path": {
+                "type": "string"
+              },
+              "depth_path": {
                 "type": "string"
               },
               "metadata": {

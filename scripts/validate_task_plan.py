@@ -113,17 +113,20 @@ def main():
     parser.add_argument("--revision", type=nonnegative_int,
                         help="Expected policy revision from the caller")
     parser.add_argument("--adapter", required=True, help="Installed adapter, e.g. xmate")
-    parser.add_argument("--list-tools", action="store_true", help="Print selected adapter capability definitions")
+    discovery = parser.add_mutually_exclusive_group()
+    discovery.add_argument("--list-tools", action="store_true", help="Print all capability definitions")
+    discovery.add_argument("--tool", help="Print one tool's exact contract without executing it")
     args = parser.parse_args()
-    if args.list_tools and args.plan:
-        parser.error("--list-tools does not take a plan")
-    if not args.list_tools and not args.plan:
+    if (args.list_tools or args.tool) and args.plan:
+        parser.error("Tool discovery does not take a plan")
+    if not (args.list_tools or args.tool) and not args.plan:
         parser.error("A plan is required")
     try:
         from scripts.adapters import load_adapter
         registry = load_adapter(args.adapter)
-        if args.list_tools:
-            print(json.dumps(registry.describe(), indent=2, ensure_ascii=False, allow_nan=False))
+        if args.list_tools or args.tool:
+            print(json.dumps(registry.describe(args.tool),
+                             indent=2, ensure_ascii=False, allow_nan=False))
             return 0
         result = validate_plan(load_json(args.plan), run_id=args.run_id,
                                state_version=args.state_version, revision=args.revision,

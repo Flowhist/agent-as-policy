@@ -44,8 +44,13 @@ class ToolRegistry:
     def version(self):
         return self._manifest['version']
 
-    def describe(self):
-        return deepcopy(self._manifest)
+    def describe(self, name=None):
+        manifest = deepcopy(self._manifest)
+        if name is not None:
+            if name not in manifest['tools']:
+                raise ValueError(f'Unknown tool: {name}')
+            manifest['tools'] = {name: manifest['tools'][name]}
+        return manifest
 
     def unavailable_tools(self, names):
         return sorted({name for name in names if name not in self._handlers})

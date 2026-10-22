@@ -4,13 +4,13 @@
 
 ## 文档入口
 
-新 agent 先读本文；其余按任务读取，各项详细约定只在对应文档维护。
+实机任务入口只有 [embodied-agent skill](.agents/skills/embodied-agent/SKILL.md)：观察后生成 plan.json，由执行器推进与审核。短计划默认在终端调用 PlanBuilder，不保存 build.py。本文供开发维护、安装/尺寸查询；计划指南按需读取，不是初始化必经步骤。
 
 | 文档 | 内容与使用时机 |
 | --- | --- |
 | 本文 | 当前进展、安装与物件参数、任务入口、脚本索引 |
 | [embodied-agent skill](.agents/skills/embodied-agent/SKILL.md) | 执行、规划或审查实机任务时的决策规则 |
-| [计划指南](.agents/skills/embodied-agent/references/plan-format.md) | 组装 plan.json、视觉辅助函数、批量路径输入、审核接回 |
+| [计划与几何参考](.agents/skills/embodied-agent/references/plan-format.md) | JSON 字段、几何函数签名、审核接回细节；按需读取 |
 | [工具与数据契约](docs/工具与数据契约.md) | 设备工具边界、路线格式、数值保护、返回证据；按需查阅 |
 | [Web 控制台](docs/Web控制台.md) | 服务启动、网页操作、常驻传感器与控制权、新帧采样 |
 | [标定](docs/标定.md) | 安装变化后的配对采集、外参求解、桌面与精度复核 |
@@ -29,7 +29,7 @@
 
 当前只支持 [计划 Schema v2](config/task-plan.schema.json)；[xMate 能力清单](config/capabilities/)版本 11，含 8 个工具。用户记录的策略配置为 `gpt-6-astra / medium`，沿用现有 Sub2API 凭据、不改全局默认；允许上传必要现场图片，费用不设上限，不上传凭据或整仓库。这不证明当前聊天实际模型。
 
-## 当前设备与物件参数速查
+## 当前设备与物件参数
 
 确认仍为同一物件和安装、用户未说明更换时，直接复用尺寸；位置、朝向、支撑、夹持、盒内占用和动作目标按本轮确定。
 
@@ -57,16 +57,18 @@ Web 参数栏读取并保存该文件；仅持有控制权且空闲时可保存�
 
 查看生效值：`python3 -m scripts.hardware.control_settings`。系统 Python 和 SDK 虚拟环境均需 PyYAML：`.venv/bin/python -m pip install 'PyYAML>=6,<7'`。新代码需在设备空闲后重启已有 Web 服务才能加载。
 
-## 实机任务最短入口
+## 实机任务入口
 
-完整任务使用一个任务目录和统一 `plan.json`，由 `run_plan.py` 推进到最终验收；单次只读或明确工具调试除外。目标是请求到验收 **300 秒内**，不以赶时间跳过保护、提速或强杀进程。操作范围按本轮 prompt，不新增审批流程。
+默认流程是 **skill → 状态与初始观察 → 终端生成 plan.json → run_plan 执行与审核 → 验收**。不要求先读本 README、完整 Schema 或落盘 build.py。
 
-1. 用 `python3 -m scripts.hardware.sensor_client status` 查看连接、忙碌和控制权；确认设备空闲、无示教器或其他所有者冲突。按[常驻接入](docs/Web控制台.md#任务脚本接入)连接缺失传感器。
-2. 调用 `observe` 取得 RGB/夹爪反馈，`robot_state` 取得空闲机械臂实读状态。一帧同时核对目标、目的地、占用、朝向和障碍；同一系统 Python 进程用 `scene_batch.analyze_frame` 共享标定并行计算。
-3. 同进程用 `PlanBuilder` 组装已知剩余阶段。多阶段优先一次 `plan_joint_routes` 预检，通过 `args_from` 消费分段结果，避免预检后重复规划；接口见[计划指南](.agents/skills/embodied-agent/references/plan-format.md)。
-4. 执行器推进 local 检查；`needs_review` 时直接看证据并提交审核。携物绑定本轮闭合位置、监测反馈，释放后以新图验收；场景变化重新规划，工具错误停止，不续跑或重放结果不明动作。
+- `python3 -m scripts.hardware.sensor_client status` 检查占用与连接；只在设备空闲且所有权允许时显式连接缺失传感器。Web 状态不代替 SDK 实读状态。
+- `python3 scripts/run_tool.py TOOL --adapter xmate` 从 stdin 接收 JSON，也可 `--args 参数文件`；不熟悉某个工具时用 `python3 scripts/validate_task_plan.py --adapter xmate --tool TOOL` 查询它，不读全量清单。
+- 完整实机任务须提交 plan.json。短计划默认通过终端 heredoc 调用现有 PlanBuilder，自动补字段和校验；也允许直接写合规 JSON。复杂、需反复调试或复用的生成逻辑才保存脚本。生成与执行分开，避免重试生成时重复运动。
+- 直接调用限初始观察、只读查询及明确调试，不代替完整任务的计划审核。错误、缺失证据或结果不明必须停止，不自动重发；重新观察后仅规划剩余工作。不对运行中的计划穿插手动动作。携物绑定本次实测 holding_position，最终用新图验收。
 
-正常执行少交流、不查 Git/源码或修改共享框架；只报阻塞、响应插话及最终结果。等待用合理的 30–60 秒窗口，不反复 tail、扫描目录或空轮询。完成后立即报告实际状态与总耗时，维护工作另做。
+工具保护、Schema 和执行器不变；直接调用没有 plan 层自动审核。场景几何及路径仍需由现有算法/工具提供，本次精简没有新增通用抓取能力。最小生成与执行示例在 skill，复杂字段和几何格式查[计划参考](.agents/skills/embodied-agent/references/plan-format.md)。
+
+正常执行少交流、不查 Git/源码或修改共享框架；目标是请求到验收300秒内，不因赶时间提速、跳保护或强杀。复用同帧信息，等待已有执行器而不反复扫描日志；完成后立即报告实际状态、证据和耗时，维护另做。
 
 ## 环境与连接
 
@@ -76,7 +78,7 @@ Web 参数栏读取并保存该文件；仅持有控制权且空闲时可保存�
 | 机械臂 | xMate SR4-C 六轴，`XMS4-R800-B4S1A2C`，IP `192.168.0.160` |
 | SDK | xCoreSDK-Python 0.7.1 / Python 3.10 ABI，控制器 xCore 3.2.1；解释器 `.venv/bin/python`，扩展 `vendor/xCoreSDK-Python/Release/linux/` |
 | 视觉 / 串口 | 系统 `python3`；numpy、scipy、OpenCV、PyYAML、pyrealsense2、pymodbus、pyserial |
-| 相机 | D455，serial `141322252639`，RGB 1280×720 / 10 Hz；共用 `config/camera_rgb.json`，当前关闭自动曝光 |
+| 相机 | D455，serial `141322252639`，RGB + 深度 Z16 均为 1280×720 / 15 Hz；共用 `config/camera_rgb.json`，当前关闭 RGB 自动曝光 |
 | 夹爪通信 | `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ0296VS-if00-port0`，9600/8N1，Modbus 地址 2 |
 
 **SDK 与 OpenCV/RealSense 必须分进程。** SDK 断开后原生库仍留在进程中；`sdk_runtime.py` 提供双向导入保护及 `logs/robot-sdk.lock` 独占锁。任务 SDK 与网页机械臂连接不可并存，常驻相机/串口复用现有服务。SDK 连接/断开本身可能停止运动，只读查询也须设备空闲。
@@ -90,6 +92,8 @@ python3 -c 'import cv2, numpy, scipy, yaml, pyrealsense2, pymodbus, serial'
 ```
 
 网页入口 `python3 scripts/web_control.py`，本机 `http://127.0.0.1:8080`；启动不连接硬件。已有 `agent-policy-web` 用户服务时只保留一个实例，管理方式见 [Web 控制台](docs/Web控制台.md)。了解项目或整理文档不需要连接设备。
+
+相机入口默认同时开启 RGB 与深度。常驻 observe 的 `rgb.depth_path` 指向同组帧对齐到 RGB 的 16 位 `-depth.png`；`rgb.metadata.depth` 保存尺寸、原始深度帧时间戳、帧号和 `meters_per_unit`。像素深度（米）为 PNG 原始值乘此比例，0 表示无效，不能当作零距离；深度为相机光轴方向距离，配对帧时间戳仍应核对。独立拍照和标定也保存深度；不对空洞插值、不自动套用历史物块尺寸。标定采集帧率由 10 改为 15 Hz，旧采集会话的配置检查会要求新建会话。
 
 ## 标定与坐标
 
@@ -116,11 +120,12 @@ python3 -c 'import cv2, numpy, scipy, yaml, pyrealsense2, pymodbus, serial'
 
 ## 脚本索引
 
-从仓库根运行。子目录入口用 `python3 -m scripts.目录.模块`，SDK 换 `.venv/bin/python`；根目录四个入口继续用 `python3 scripts/入口.py`。脚本参数/示例见对应专题，不从历史任务推断。
+从仓库根运行。子目录入口用 `python3 -m scripts.目录.模块`，SDK 换 `.venv/bin/python`；根目录入口继续用 `python3 scripts/入口.py`。脚本参数/示例见对应专题，不从历史任务推断。
 
 | 入口 | 职责 |
 | --- | --- |
-| `scripts/run_plan.py`、`run_tool.py`、`validate_task_plan.py` | 统一计划/审核接回、单工具调用、静态校验 |
+| `scripts/run_tool.py` | 初始观察、只读查询及明确调试：JSON 参数调用工具 |
+| `scripts/run_plan.py`、`validate_task_plan.py` | 完整任务执行/审核接回、静态校验和工具契约查询 |
 | `scripts/web_control.py` | 常驻控制台 |
 | `scripts/runtime/`、`scripts/adapters/` | 计划组装、Schema/条件计算、工具注册及子进程适配 |
 | `scripts/hardware/check_connection.py`（SDK） | 只读机器人状态，`--output` 保存结构化结果 |
